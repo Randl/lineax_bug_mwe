@@ -18,8 +18,6 @@ from typing_extensions import TypeAlias
 from tests.bug_oper_misc import inexact_asarray
 from tests.bug_opers import (
     linearise,
-    conj,
-    AbstractLinearOperator,
     TangentLinearOperator,
 )
 from tests.bug_solution import RESULTS, Solution
@@ -180,7 +178,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def init(
-        self, operator: AbstractLinearOperator, options: dict[str, Any]
+        self, operator, options: dict[str, Any]
     ) -> _SolverState:
         """Do any initial computation on just the `operator`.
 
@@ -241,7 +239,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         """
 
     @abc.abstractmethod
-    def allow_dependent_columns(self, operator: AbstractLinearOperator) -> bool:
+    def allow_dependent_columns(self, operator) -> bool:
         """Does this method ever produce non-NaN outputs for operators with linearly
         dependent columns? (Even if only sometimes.)
 
@@ -266,7 +264,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
         """
 
     @abc.abstractmethod
-    def allow_dependent_rows(self, operator: AbstractLinearOperator) -> bool:
+    def allow_dependent_rows(self, operator) -> bool:
         """Does this method ever produce non-NaN outputs for operators with
         linearly dependent rows? (Even if only sometimes)
 
@@ -370,7 +368,7 @@ _AutoLinearSolverState: TypeAlias = tuple[Any, Any]
 
 @eqx.filter_jit
 def linear_solve(
-    operator: AbstractLinearOperator,
+    operator,
     vector: PyTree[ArrayLike],
     solver: AbstractLinearSolver = None,
     *,

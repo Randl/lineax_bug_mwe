@@ -48,125 +48,8 @@ def _inexact_structure(x: PyTree[jax.ShapeDtypeStruct]) -> PyTree[jax.ShapeDtype
     return jax.eval_shape(_inexact_structure_impl, x)
 
 
-class AbstractLinearOperator(eqx.Module):
-    """Abstract base class for all linear operators.
-
-    Linear operators can act between PyTrees. Each `AbstractLinearOperator` is thought
-    of as a linear function `X -> Y`, where each element of `X` is as PyTree of
-    floating-point JAX arrays, and each element of `Y` is a PyTree of floating-point
-    JAX arrays.
-
-    Abstract linear operators support some operations:
-    ```python
-    op1 + op2  # addition of two operators
-    op1 @ op2  # composition of two operators.
-    op1 * 3.2  # multiplication by a scalar
-    op1 / 3.2  # division by a scalar
-    ```
-    """
-
-    def __check_init__(self):
-        pass
-
-    @abc.abstractmethod
-    def mv(
-        self, vector: PyTree[Inexact[Array, " _b"]]
-    ) -> PyTree[Inexact[Array, " _a"]]:
-        """Computes a matrix-vector product between this operator and a `vector`.
-
-        **Arguments:**
-
-        - `vector`: Should be some PyTree of floating-point arrays, whose structure
-            should match `self.in_structure()`.
-
-        **Returns:**
-
-        A PyTree of floating-point arrays, with structure that matches
-        `self.out_structure()`.
-        """
-
-    @abc.abstractmethod
-    def as_matrix(self) -> Inexact[Array, "a b"]:
-        """Materialises this linear operator as a matrix.
-
-        Note that this can be a computationally (time and/or memory) expensive
-        operation, as many linear operators are defined implicitly, e.g. in terms of
-        their action on a vector.
-
-        **Arguments:** None.
-
-        **Returns:**
-
-        A 2-dimensional floating-point JAX array.
-        """
-
-    @abc.abstractmethod
-    def transpose(self) -> "AbstractLinearOperator":
-        """Transposes this linear operator.
-
-        This can be called as either `operator.T` or `operator.transpose()`.
-
-        **Arguments:** None.
-
-        **Returns:**
-
-        Another [`lineax.AbstractLinearOperator`][].
-        """
-
-    @abc.abstractmethod
-    def in_structure(self) -> PyTree[jax.ShapeDtypeStruct]:
-        """Returns the expected input structure of this linear operator.
-
-        **Arguments:** None.
-
-        **Returns:**
-
-        A PyTree of `jax.ShapeDtypeStruct`.
-        """
-
-    @abc.abstractmethod
-    def out_structure(self) -> PyTree[jax.ShapeDtypeStruct]:
-        """Returns the expected output structure of this linear operator.
-
-        **Arguments:** None.
-
-        **Returns:**
-
-        A PyTree of `jax.ShapeDtypeStruct`.
-        """
-
-    def in_size(self) -> int:
-        """Returns the total number of scalars in the input of this linear operator.
-
-        That is, the dimensionality of its input space.
-
-        **Arguments:** None.
-
-        **Returns:** An integer.
-        """
-        leaves = jtu.tree_leaves(self.in_structure())
-        return sum(math.prod(leaf.shape) for leaf in leaves)  # pyright: ignore
-
-    def out_size(self) -> int:
-        """Returns the total number of scalars in the output of this linear operator.
-
-        That is, the dimensionality of its output space.
-
-        **Arguments:** None.
-
-        **Returns:** An integer.
-        """
-        leaves = jtu.tree_leaves(self.out_structure())
-        return sum(math.prod(leaf.shape) for leaf in leaves)  # pyright: ignore
-
-    @property
-    def T(self) -> "AbstractLinearOperator":
-        """Equivalent to [`lineax.AbstractLinearOperator.transpose`][]"""
-        return self.transpose()
-
-
 # `structure` must be static as with `JacobianLinearOperator`
-class IdentityLinearOperator(AbstractLinearOperator):
+class IdentityLinearOperator(eqx.Module):
     """Represents the identity transformation `X -> X`, where each `x in X` is some
     PyTree of floating-point JAX arrays.
     """
@@ -224,12 +107,12 @@ class IdentityLinearOperator(AbstractLinearOperator):
         return frozenset()
 
 
-class AuxLinearOperator(AbstractLinearOperator):
+class AuxLinearOperator(eqx.Module):
     """Internal to lineax. Used to represent a linear operator with additional
     metadata attached.
     """
 
-    operator: AbstractLinearOperator
+    operator: Any
     aux: PyTree[Array]
 
     def mv(self, vector):
@@ -248,7 +131,7 @@ class AuxLinearOperator(AbstractLinearOperator):
         return self.operator.out_structure()
 
 
-class JacobianLinearOperator(AbstractLinearOperator):
+class JacobianLinearOperator(eqx.Module):
     """Given a function `fn: X -> Y`, and a point `x in X`, then this defines the
     linear operator (also a function `X -> Y`) given by the Jacobian `(d(fn)/dx)(x)`.
 
@@ -336,7 +219,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
 
 
 # `input_structure` must be static as with `JacobianLinearOperator`
-class FunctionLinearOperator(AbstractLinearOperator):
+class FunctionLinearOperator(eqx.Module):
     """Wraps a *linear* function `fn: X -> Y` into a linear operator. (So that
     `self.mv(x)` is defined by `self.mv(x) == fn(x)`.)
 
@@ -402,13 +285,13 @@ def _is_none(x):
     return x is None
 
 
-class TangentLinearOperator(AbstractLinearOperator):
+class TangentLinearOperator(eqx.Module):
     """Internal to lineax. Used to represent the tangent (jvp) computation with
     respect to the linear operator in a linear solve.
     """
 
-    primal: AbstractLinearOperator
-    tangent: AbstractLinearOperator
+    primal: Any
+    tangent: Any
 
     def __check_init__(self):
         assert type(self.primal) is type(self.tangent)  # noqa: E721
@@ -437,7 +320,7 @@ class TangentLinearOperator(AbstractLinearOperator):
         return self.primal.out_structure()
 
 
-def _default_not_implemented(name: str, operator: AbstractLinearOperator) -> NoReturn:
+def _default_not_implemented(name: str, operator) -> NoReturn:
     msg = f"`lineax.{name}` has not been implemented for {type(operator)}"
     if type(operator).__module__.startswith("lineax"):
         assert False, msg + ". Please file a bug against Lineax."
@@ -449,7 +332,7 @@ def _default_not_implemented(name: str, operator: AbstractLinearOperator) -> NoR
 
 
 @ft.singledispatch
-def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+def materialise(operator) :
     """Materialises a linear operator. This returns another linear operator.
 
     Mathematically speaking this is just the identity function. And indeed most linear
@@ -525,7 +408,7 @@ def _(operator):
 
 
 @ft.singledispatch
-def linearise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+def linearise(operator) :
     """Linearises a linear operator. This returns another linear operator.
 
     Mathematically speaking this is just the identity function. And indeed most linear
@@ -575,7 +458,7 @@ def _(operator):
 
 
 @ft.singledispatch
-def conj(operator: AbstractLinearOperator) -> AbstractLinearOperator:
+def conj(operator) :
     """Elementwise conjugate of a linear operator. This returns another linear operator.
 
     **Arguments:**

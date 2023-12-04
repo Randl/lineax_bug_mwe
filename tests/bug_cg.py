@@ -37,7 +37,7 @@ from tests.bug_misc import (
     tree_dot,
     tree_where,
 )
-from tests.bug_opers import linearise, AbstractLinearOperator, conj
+from tests.bug_opers import linearise, conj
 from tests.bug_solution import RESULTS
 
 if TYPE_CHECKING:
@@ -46,189 +46,12 @@ else:
     from equinox.internal import AbstractClassVar
 
 
-_CGState: TypeAlias = tuple[AbstractLinearOperator, bool]
-
-_SolverState = TypeVar("_SolverState")
-
-
-class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
-    """Abstract base class for all linear solvers."""
-
-    @abc.abstractmethod
-    def init(
-        self, operator: AbstractLinearOperator, options: dict[str, Any]
-    ) -> _SolverState:
-        """Do any initial computation on just the `operator`.
-
-        For example, an LU solver would compute the LU decomposition of the operator
-        (and this does not require knowing the vector yet).
-
-        It is common to need to solve the linear system `Ax=b` multiple times in
-        succession, with the same operator `A` and multiple vectors `b`. This method
-        improves efficiency by making it possible to re-use the computation performed
-        on just the operator.
-
-        !!! Example
-
-            ```python
-            operator = lx.MatrixLinearOperator(...)
-            vector1 = ...
-            vector2 = ...
-            solver = lx.LU()
-            state = solver.init(operator, options={})
-            solution1 = lx.linear_solve(operator, vector1, solver, state=state)
-            solution2 = lx.linear_solve(operator, vector2, solver, state=state)
-            ```
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-        - `options`: a dictionary of any extra options that the solver may wish to
-            accept.
-
-        **Returns:**
-
-        A PyTree of arbitrary Python objects.
-        """
-
-    @abc.abstractmethod
-    def compute(
-        self, state: _SolverState, vector: PyTree[Array], options: dict[str, Any]
-    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
-        """Solves a linear system.
-
-        **Arguments:**
-
-        - `state`: as returned from [`lineax.AbstractLinearSolver.init`][].
-        - `vector`: the vector to solve against.
-        - `options`: a dictionary of any extra options that the solver may wish to
-            accept. For example, [`lineax.CG`][] accepts a `preconditioner` option.
-
-        **Returns:**
-
-        A 3-tuple of:
-
-        - The solution to the linear system.
-        - An integer indicating the success or failure of the solve. This is an integer
-            which may be converted to a human-readable error message via
-            `lx.RESULTS[...]`.
-        - A dictionary of an extra statistics about the solve, e.g. the number of steps
-            taken.
-        """
-
-    @abc.abstractmethod
-    def allow_dependent_columns(self, operator: AbstractLinearOperator) -> bool:
-        """Does this method ever produce non-NaN outputs for operators with linearly
-        dependent columns? (Even if only sometimes.)
-
-        If `True` then a more expensive backward pass is needed, to account for the
-        extra generality.
-
-        If you do not need to autodifferentiate through a custom linear solver then you
-        simply define this method as
-        ```python
-        class MyLinearSolver(AbstractLinearsolver):
-            def allow_dependent_columns(self, operator):
-                raise NotImplementedError
-        ```
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-
-        **Returns:**
-
-        Either `True` or `False`.
-        """
-
-    @abc.abstractmethod
-    def allow_dependent_rows(self, operator: AbstractLinearOperator) -> bool:
-        """Does this method ever produce non-NaN outputs for operators with
-        linearly dependent rows? (Even if only sometimes)
-
-        If `True` then a more expensive backward pass is needed, to account for the
-        extra generality.
-
-        If you do not need to autodifferentiate through a custom linear solver then you
-        simply define this method as
-        ```python
-        class MyLinearSolver(AbstractLinearsolver):
-            def allow_dependent_rows(self, operator):
-                raise NotImplementedError
-        ```
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-
-        **Returns:**
-
-        Either `True` or `False`.
-        """
-
-    @abc.abstractmethod
-    def transpose(
-        self, state: _SolverState, options: dict[str, Any]
-    ) -> tuple[_SolverState, dict[str, Any]]:
-        """Transposes the result of [`lineax.AbstractLinearSolver.init`][].
-
-        That is, it should be the case that
-        ```python
-        state_transpose, _ = solver.transpose(solver.init(operator, options), options)
-        state_transpose2 = solver.init(operator.T, options)
-        ```
-        must be identical to each other.
-
-        It is relatively common (in particular when differentiating through a linear
-        solve) to need to solve both `Ax = b` and `A^T x = b`. This method makes it
-        possible to avoid computing both `solver.init(operator)` and
-        `solver.init(operator.T)` if one can be cheaply computed from the other.
-
-        **Arguments:**
-
-        - `state`: as returned from `solver.init`.
-        - `options`: any extra options that were passed to `solve.init`.
-
-        **Returns:**
-
-        A 2-tuple of:
-
-        - The state of the transposed operator.
-        - The options for the transposed operator.
-        """
-
-    @abc.abstractmethod
-    def conj(
-        self, state: _SolverState, options: dict[str, Any]
-    ) -> tuple[_SolverState, dict[str, Any]]:
-        """Conjugate the result of [`lineax.AbstractLinearSolver.init`][].
-
-        That is, it should be the case that
-        ```python
-        state_conj, _ = solver.conj(solver.init(operator, options), options)
-        state_conj2 = solver.init(conj(operator), options)
-        ```
-        must be identical to each other.
-
-        **Arguments:**
-
-        - `state`: as returned from `solver.init`.
-        - `options`: any extra options that were passed to `solve.init`.
-
-        **Returns:**
-
-        A 2-tuple of:
-
-        - The state of the conjugated operator.
-        - The options for the conjugated operator.
-        """
-
 
 # TODO(kidger): this is pretty slow to compile.
 # - CG evaluates `operator.mv` three times.
 # - Normal CG evaluates `operator.mv` seven (!) times.
 # Possibly this can be cheapened a bit somehow?
-class _CG(AbstractLinearSolver[_CGState]):
+class _CG(eqx.Module):
     rtol: float
     atol: float
     norm: Callable[[PyTree], Scalar] = max_norm
@@ -240,7 +63,7 @@ class _CG(AbstractLinearSolver[_CGState]):
     def __check_init__(self):
         pass
 
-    def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
+    def init(self, operator, options: dict[str, Any]):
         del options
         is_nsd = True
         return operator, is_nsd
@@ -255,7 +78,7 @@ class _CG(AbstractLinearSolver[_CGState]):
     #    additional information.
     # 4. We don't try to support complex numbers. (Yet.)
     def compute(
-        self, state: _CGState, vector: PyTree[Array], options: dict[str, Any]
+        self, state, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator, is_nsd = state
         if self._normal:
@@ -371,14 +194,14 @@ class _CG(AbstractLinearSolver[_CGState]):
         stats = {"num_steps": num_steps, "max_steps": self.max_steps}
         return solution, result, stats
 
-    def transpose(self, state: _CGState, options: dict[str, Any]):
+    def transpose(self, state, options: dict[str, Any]):
         del options
         psd_op, is_nsd = state
         transpose_state = psd_op.transpose(), is_nsd
         transpose_options = {}
         return transpose_state, transpose_options
 
-    def conj(self, state: _CGState, options: dict[str, Any]):
+    def conj(self, state, options: dict[str, Any]):
         del options
         psd_op, is_nsd = state
         conj_state = conj(psd_op), is_nsd
@@ -454,35 +277,3 @@ class NormalCG(_CG):
         return rows > columns
 
 
-CG.__init__.__doc__ = r"""**Arguments:**
-
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
-- `norm`: The norm to use when computing whether the error falls within the tolerance.
-    Defaults to the max norm.
-- `stabilise_every`: The conjugate gradient is an iterative method that produces
-    candidate solutions $x_1, x_2, \ldots$, and terminates once $r_i = \| Ax_i - b \|$
-    is small enough. For computational efficiency, the values $r_i$ are computed using
-    other internal quantities, and not by directly evaluating the formula above.
-    However, this computation of $r_i$ is susceptible to drift due to limited
-    floating-point precision. Every `stabilise_every` steps, then $r_i$ is computed
-    directly using the formula above, in order to stabilise the computation.
-- `max_steps`: The maximum number of iterations to run the solver for. If more steps
-    than this are required, then the solve is halted with a failure.
-"""
-
-NormalCG.__init__.__doc__ = r"""**Arguments:**
-- `rtol`: Relative tolerance for terminating solve.
-- `atol`: Absolute tolerance for terminating solve.
-- `norm`: The norm to use when computing whether the error falls within the tolerance.
-    Defaults to the max norm.
-- `stabilise_every`: The conjugate gradient is an iterative method that produces
-    candidate solutions $x_1, x_2, \ldots$, and terminates once $r_i = \| Ax_i - b \|$
-    is small enough. For computational efficiency, the values $r_i$ are computed using
-    other internal quantities, and not by directly evaluating the formula above.
-    However, this computation of $r_i$ is susceptible to drift due to limited
-    floating-point precision. Every `stabilise_every` steps, then $r_i$ is computed
-    directly using the formula above, in order to stabilise the computation.
-- `max_steps`: The maximum number of iterations to run the solver for. If more steps
-    than this are required, then the solve is halted with a failure.
-"""
