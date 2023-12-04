@@ -1,6 +1,4 @@
-import abc
 import functools as ft
-import math
 from collections.abc import Callable
 from typing import (
     Any,
@@ -9,12 +7,10 @@ from typing import (
     TypeVar,
     Union,
 )
-import numpy as np
+
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
-import jax.flatten_util as jfu
-import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import (  # pyright: ignore
@@ -29,9 +25,6 @@ from tests.bug_oper_misc import (
     NoneAux,
     _NoAuxOut,
     _NoAuxIn,
-    _Unwrap,
-    default_floating_dtype,
-    jacobian,
 )
 from tests.bug_type import sentinel
 
@@ -104,7 +97,6 @@ class AuxLinearOperator(eqx.Module):
 
     def mv(self, vector):
         return self.operator.mv(vector)
-
 
     def transpose(self):
         return self.operator.transpose()

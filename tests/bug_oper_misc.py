@@ -5,10 +5,7 @@ import equinox as eqx
 import jax
 import jax.core
 import jax.core
-import jax.lax as lax
 import jax.numpy as jnp
-import jax.tree_util as jtu
-from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar  # pyright:ignore
 
 
 class NoneAux(eqx.Module):

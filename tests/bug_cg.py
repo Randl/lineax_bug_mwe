@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import abc
 from collections.abc import Callable
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Optional
 from typing import ClassVar
 
 import equinox as eqx
@@ -28,7 +27,6 @@ from equinox.internal import ω
 from jaxtyping import Array, PyTree
 from jaxtyping import Scalar
 from typing_extensions import TYPE_CHECKING
-from typing_extensions import TypeAlias
 
 from tests.bug_misc import (
     preconditioner_and_y0,
@@ -217,12 +215,6 @@ class CG(_CG):
 
     _normal: ClassVar[bool] = False
 
-    def allow_dependent_columns(self, operator):
-        return False
-
-    def allow_dependent_rows(self, operator):
-        return False
-
 
 class NormalCG(_CG):
     """Conjugate gradient applied to the normal equations:
@@ -250,13 +242,3 @@ class NormalCG(_CG):
     """
 
     _normal: ClassVar[bool] = True
-
-    def allow_dependent_columns(self, operator):
-        rows = operator.out_size()
-        columns = operator.in_size()
-        return columns > rows
-
-    def allow_dependent_rows(self, operator):
-        rows = operator.out_size()
-        columns = operator.in_size()
-        return rows > columns

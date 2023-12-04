@@ -20,7 +20,6 @@ import jax.random as jr
 import pytest
 from jaxtyping import PRNGKeyArray
 
-
 jax.config.update("jax_enable_x64", True)
 
 

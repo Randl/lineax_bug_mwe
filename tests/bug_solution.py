@@ -18,7 +18,6 @@ import equinox as eqx
 import equinox.internal as eqxi
 from jaxtyping import Array, ArrayLike, PyTree
 
-
 _singular_msg = """
 The linear solver returned non-finite (NaN or inf) output. This usually means that the
 operator was not well-posed, and that the solver does not support this.

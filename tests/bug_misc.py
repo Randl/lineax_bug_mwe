@@ -1,7 +1,5 @@
-from collections.abc import Callable
 from typing import Any
 
-import equinox as eqx
 import jax
 import jax.core
 import jax.core
