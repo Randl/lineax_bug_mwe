@@ -105,17 +105,12 @@ class AuxLinearOperator(eqx.Module):
     def mv(self, vector):
         return self.operator.mv(vector)
 
-    def as_matrix(self):
-        return self.operator.as_matrix()
 
     def transpose(self):
         return self.operator.transpose()
 
     def in_structure(self):
         return self.operator.in_structure()
-
-    def out_structure(self):
-        return self.operator.out_structure()
 
 
 class JacobianLinearOperator(eqx.Module):

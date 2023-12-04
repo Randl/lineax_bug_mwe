@@ -21,7 +21,6 @@ from tests.bug_opers import (
     TangentLinearOperator,
 )
 from tests.bug_solution import RESULTS, Solution
-from tests.bug_type import sentinel
 
 
 #
@@ -353,14 +352,6 @@ _cholesky_token = eqxi.str2jax("cholesky_token")
 _lu_token = eqxi.str2jax("lu_token")
 _svd_token = eqxi.str2jax("svd_token")
 
-
-# Ugly delayed import because we have the dependency chain
-# linear_solve -> AutoLinearSolver -> {Cholesky,...} -> AbstractLinearSolver
-# but we want linear_solver and AbstractLinearSolver in the same file.
-def _lookup(token) -> AbstractLinearSolver:
-    return None
-
-
 _AutoLinearSolverState: TypeAlias = tuple[Any, Any]
 
 
@@ -371,7 +362,7 @@ def linear_solve(
     solver: AbstractLinearSolver = None,
     *,
     options: Optional[dict[str, Any]] = None,
-    state: PyTree[Any] = sentinel,
+    state: PyTree[Any] = None,
     throw: bool = True,
 ) -> Solution:
     r"""Solves a linear system.
@@ -482,11 +473,6 @@ def linear_solve(
             f"{vector_struct} and an operator with out-structure "
             f"{operator_out_structure}"
         )
-    if state == sentinel:
-        state = solver.init(operator, options)
-        dynamic_state, static_state = eqx.partition(state, eqx.is_array)
-        dynamic_state = lax.stop_gradient(dynamic_state)
-        state = eqx.combine(dynamic_state, static_state)
 
     state = eqxi.nondifferentiable(state, name="`lineax.linear_solve(..., state=...)`")
     options = eqxi.nondifferentiable(
