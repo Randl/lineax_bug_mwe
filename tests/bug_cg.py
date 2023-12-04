@@ -46,7 +46,6 @@ else:
     from equinox.internal import AbstractClassVar
 
 
-
 # TODO(kidger): this is pretty slow to compile.
 # - CG evaluates `operator.mv` three times.
 # - Normal CG evaluates `operator.mv` seven (!) times.
@@ -194,20 +193,6 @@ class _CG(eqx.Module):
         stats = {"num_steps": num_steps, "max_steps": self.max_steps}
         return solution, result, stats
 
-    def transpose(self, state, options: dict[str, Any]):
-        del options
-        psd_op, is_nsd = state
-        transpose_state = psd_op.transpose(), is_nsd
-        transpose_options = {}
-        return transpose_state, transpose_options
-
-    def conj(self, state, options: dict[str, Any]):
-        del options
-        psd_op, is_nsd = state
-        conj_state = conj(psd_op), is_nsd
-        conj_options = {}
-        return conj_state, conj_options
-
 
 class CG(_CG):
     """Conjugate gradient solver for linear systems.
@@ -275,5 +260,3 @@ class NormalCG(_CG):
         rows = operator.out_size()
         columns = operator.in_size()
         return rows > columns
-
-

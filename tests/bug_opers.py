@@ -40,6 +40,7 @@ from tests.bug_type import sentinel
 _T = TypeVar("_T")
 _FlatPyTree = tuple[list[_T], jtu.PyTreeDef]
 
+
 def _inexact_structure_impl(x):
     return x
 
@@ -87,7 +88,6 @@ class IdentityLinearOperator(eqx.Module):
             return vector  # fast-path for common special case
         else:
             raise ValueError()
-
 
     def in_structure(self):
         leaves, treedef = self.input_structure
@@ -181,7 +181,6 @@ class JacobianLinearOperator(eqx.Module):
         self.args = args
         self.tags = None
 
-
     def in_structure(self):
         return jax.eval_shape(lambda: self.x)
 
@@ -273,6 +272,7 @@ class TangentLinearOperator(eqx.Module):
         out, t_out = eqx.filter_jvp(mv, (self.primal,), (self.tangent,))
         return jtu.tree_map(eqxi.materialise_zeros, out, t_out, is_leaf=_is_none)
 
+
 def _default_not_implemented(name: str, operator) -> NoReturn:
     msg = f"`lineax.{name}` has not been implemented for {type(operator)}"
     if type(operator).__module__.startswith("lineax"):
@@ -285,7 +285,7 @@ def _default_not_implemented(name: str, operator) -> NoReturn:
 
 
 @ft.singledispatch
-def linearise(operator) :
+def linearise(operator):
     """Linearises a linear operator. This returns another linear operator.
 
     Mathematically speaking this is just the identity function. And indeed most linear
@@ -330,7 +330,7 @@ def _(operator):
 
 
 @ft.singledispatch
-def conj(operator) :
+def conj(operator):
     """Elementwise conjugate of a linear operator. This returns another linear operator.
 
     **Arguments:**
@@ -351,4 +351,3 @@ def _(operator):
         operator.in_structure(),
         operator.tags,
     )
-

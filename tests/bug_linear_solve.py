@@ -177,9 +177,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
     """Abstract base class for all linear solvers."""
 
     @abc.abstractmethod
-    def init(
-        self, operator, options: dict[str, Any]
-    ) -> _SolverState:
+    def init(self, operator, options: dict[str, Any]) -> _SolverState:
         """Do any initial computation on just the `operator`.
 
         For example, an LU solver would compute the LU decomposition of the operator
