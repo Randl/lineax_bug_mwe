@@ -368,111 +368,11 @@ def _lookup(token) -> AbstractLinearSolver:
 _AutoLinearSolverState: TypeAlias = tuple[Any, Any]
 
 
-class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
-    """Automatically determines a good linear solver based on the structure of the
-    operator.
-
-    - If `well_posed=True`:
-        - If the operator is diagonal, then use [`lineax.Diagonal`][].
-        - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
-        - If the operator is triangular, then use [`lineax.Triangular`][].
-        - If the matrix is positive or negative definite, then use
-            [`lineax.Cholesky`][].
-        - Else use [`lineax.LU`][].
-
-    This is a good choice if you want to be certain that an error is raised for
-    ill-posed systems.
-
-    - If `well_posed=False`:
-        - If the operator is diagonal, then use [`lineax.Diagonal`][].
-        - Else use [`lineax.SVD`][].
-
-    This is a good choice if you want to be certain that you can handle ill-posed
-    systems.
-
-    - If `well_posed=None`:
-        - If the operator is non-square, then use [`lineax.QR`][].
-        - If the operator is diagonal, then use [`lineax.Diagonal`][].
-        - If the operator is tridiagonal, then use [`lineax.Tridiagonal`][].
-        - If the operator is triangular, then use [`lineax.Triangular`][].
-        - If the matrix is positive or negative definite, then use
-            [`lineax.Cholesky`][].
-        - Else, use [`lineax.LU`][].
-
-    This is a good choice if your primary concern is computational efficiency. It will
-    handle ill-posed systems as long as it is not computationally expensive to do so.
-    """
-
-    well_posed: Optional[bool]
-
-    def _select_solver(self, operator: AbstractLinearOperator):
-        token = _qr_token
-        return token
-
-    def select_solver(self, operator: AbstractLinearOperator) -> AbstractLinearSolver:
-        """Check which solver that [`lineax.AutoLinearSolver`][] will dispatch to.
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-
-        **Returns:**
-
-        The linear solver that will be used.
-        """
-        return _lookup(self._select_solver(operator))
-
-    def init(self, operator, options) -> _AutoLinearSolverState:
-        token = self._select_solver(operator)
-        return token, _lookup(token).init(operator, options)
-
-    def compute(
-        self,
-        state: _AutoLinearSolverState,
-        vector: PyTree[Array],
-        options: dict[str, Any],
-    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
-        token, state = state
-        solver = _lookup(token)
-        solution, result, _ = solver.compute(state, vector, options)
-        return solution, result, {}
-
-    def transpose(self, state: _AutoLinearSolverState, options: dict[str, Any]):
-        token, state = state
-        solver = _lookup(token)
-        transpose_state, transpose_options = solver.transpose(state, options)
-        transpose_state = (token, transpose_state)
-        return transpose_state, transpose_options
-
-    def conj(self, state: _AutoLinearSolverState, options: dict[str, Any]):
-        token, state = state
-        solver = _lookup(token)
-        conj_state, conj_options = solver.conj(state, options)
-        conj_state = (token, conj_state)
-        return conj_state, conj_options
-
-    def allow_dependent_columns(self, operator: AbstractLinearOperator) -> bool:
-        token = self._select_solver(operator)
-        return _lookup(token).allow_dependent_columns(operator)
-
-    def allow_dependent_rows(self, operator: AbstractLinearOperator) -> bool:
-        token = self._select_solver(operator)
-        return _lookup(token).allow_dependent_rows(operator)
-
-
-AutoLinearSolver.__init__.__doc__ = """**Arguments:**
-
-- `well_posed`: whether to only handle well-posed systems or not, as discussed above.
-"""
-
-
-# TODO(kidger): gmres, bicgstab
-# TODO(kidger): support auxiliary outputs
 @eqx.filter_jit
 def linear_solve(
     operator: AbstractLinearOperator,
     vector: PyTree[ArrayLike],
-    solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
+    solver: AbstractLinearSolver = None,
     *,
     options: Optional[dict[str, Any]] = None,
     state: PyTree[Any] = sentinel,
