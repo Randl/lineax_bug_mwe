@@ -272,16 +272,11 @@ class _CG(AbstractLinearSolver[_CGState]):
                 return _transpose_mv(_mv(vector))
 
             vector = _transpose_mv(vector)
-        else:
-            mv = operator.mv
-        # print(f"MYOP {operator}")
+
         preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         leaves, _ = jtu.tree_flatten(vector)
         size = sum(leaf.size for leaf in leaves)
-        if self.max_steps is None:
-            max_steps = 10 * size  # Copied from SciPy!
-        else:
-            max_steps = self.max_steps
+        max_steps = 10 * size  # Copied from SciPy!
         r0 = (vector ** ω - mv(y0) ** ω).ω
         p0 = preconditioner.mv(r0)
         gamma0 = tree_dot(r0, p0)
@@ -346,14 +341,9 @@ class _CG(AbstractLinearSolver[_CGState]):
             def cheap_r():
                 return (r ** ω - alpha * mat_p ** ω).ω
 
-            if self.stabilise_every == 1:
-                r = stable_r()
-            elif self.stabilise_every is None:
-                r = cheap_r()
-            else:
-                stable_step = (eqxi.unvmap_max(step) % self.stabilise_every) == 0
-                stable_step = eqxi.nonbatchable(stable_step)
-                r = lax.cond(stable_step, stable_r, cheap_r)
+            stable_step = (eqxi.unvmap_max(step) % self.stabilise_every) == 0
+            stable_step = eqxi.nonbatchable(stable_step)
+            r = lax.cond(stable_step, stable_r, cheap_r)
 
             z = preconditioner.mv(r)
             gamma_prev = gamma
@@ -366,21 +356,12 @@ class _CG(AbstractLinearSolver[_CGState]):
             cond_fun, body_fun, initial_value
         )
 
-        if (self.max_steps is None) or (max_steps < self.max_steps):
-            result = RESULTS.where(
-                num_steps == max_steps,
-                RESULTS.singular,
-                RESULTS.successful,
-            )
-        else:
-            result = RESULTS.where(
-                num_steps == max_steps,
-                RESULTS.max_steps_reached,
-                RESULTS.successful,
-            )
+        result = RESULTS.where(
+            num_steps == max_steps,
+            RESULTS.singular,
+            RESULTS.successful,
+        )
 
-        if is_nsd and not self._normal:
-            solution = -(solution ** ω).ω
         stats = {"num_steps": num_steps, "max_steps": self.max_steps}
         return solution, result, stats
 
