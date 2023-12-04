@@ -232,28 +232,11 @@ class _CG(AbstractLinearSolver[_CGState]):
     _normal: AbstractClassVar[bool]
 
     def __check_init__(self):
-        if isinstance(self.rtol, (int, float)) and self.rtol < 0:
-            raise ValueError("Tolerances must be non-negative.")
-        if isinstance(self.atol, (int, float)) and self.atol < 0:
-            raise ValueError("Tolerances must be non-negative.")
-
-        if isinstance(self.atol, (int, float)) and isinstance(self.rtol, (int, float)):
-            if self.atol == 0 and self.rtol == 0 and self.max_steps is None:
-                raise ValueError(
-                    "Must specify `rtol`, `atol`, or `max_steps` (or some combination "
-                    "of all three)."
-                )
+        pass
 
     def init(self, operator: AbstractLinearOperator, options: dict[str, Any]):
         del options
         is_nsd = True
-        if not self._normal:
-            if operator.in_structure() != operator.out_structure():
-                raise ValueError(
-                    "`CG()` may only be used for linear solves with " "square matrices."
-                )
-            if is_nsd:
-                operator = -operator
         return operator, is_nsd
 
     # This differs from jax.scipy.sparse.linalg.cg in:
