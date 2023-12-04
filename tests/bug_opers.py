@@ -273,94 +273,12 @@ class TangentLinearOperator(eqx.Module):
         out, t_out = eqx.filter_jvp(mv, (self.primal,), (self.tangent,))
         return jtu.tree_map(eqxi.materialise_zeros, out, t_out, is_leaf=_is_none)
 
-    def as_matrix(self):
-        as_matrix = lambda operator: operator.as_matrix()
-        out, t_out = eqx.filter_jvp(as_matrix, (self.primal,), (self.tangent,))
-        return jtu.tree_map(eqxi.materialise_zeros, out, t_out, is_leaf=_is_none)
-
-
 def _default_not_implemented(name: str, operator) -> NoReturn:
     msg = f"`lineax.{name}` has not been implemented for {type(operator)}"
     if type(operator).__module__.startswith("lineax"):
         assert False, msg + ". Please file a bug against Lineax."
     else:
         raise NotImplementedError(msg)
-
-
-# materialise
-
-
-@ft.singledispatch
-def materialise(operator) :
-    """Materialises a linear operator. This returns another linear operator.
-
-    Mathematically speaking this is just the identity function. And indeed most linear
-    operators will be returned unchanged.
-
-    For specifically [`lineax.JacobianLinearOperator`][] and
-    [`lineax.FunctionLinearOperator`][] then the linear operator is materialised in
-    memory. That is, it becomes defined as a matrix (or pytree of arrays), rather
-    than being defined only through its matrix-vector product
-    ([`lineax.AbstractLinearOperator.mv`][]).
-
-    Materialisation sometimes improves compile time or run time. It usually increases
-    memory usage.
-
-    For example:
-    ```python
-    large_function = ...
-    operator = lx.FunctionLinearOperator(large_function, ...)
-
-    # Option 1
-    out1 = operator.mv(vector1)  # Traces and compiles `large_function`
-    out2 = operator.mv(vector2)  # Traces and compiles `large_function` again!
-    out3 = operator.mv(vector3)  # Traces and compiles `large_function` a third time!
-    # All that compilation might lead to long compile times.
-    # If `large_function` takes a long time to run, then this might also lead to long
-    # run times.
-
-    # Option 2
-    operator = lx.materialise(operator)  # Traces and compiles `large_function` and
-                                           # stores the result as a matrix.
-    out1 = operator.mv(vector1)  # Each of these just computes a matrix-vector product
-    out2 = operator.mv(vector2)  # against the stored matrix.
-    out3 = operator.mv(vector3)  #
-    # Now, `large_function` is only compiled once, and only ran once.
-    # However, storing the matrix might take a lot of memory, and the initial
-    # computation may-or-may-not take a long time to run.
-    ```
-    Generally speaking it is worth first setting up your problem without
-    `lx.materialise`, and using it as an optional optimisation if you find that it
-    helps your particular problem.
-
-    **Arguments:**
-
-    - `operator`: a linear operator.
-
-    **Returns:**
-
-    Another linear operator. Mathematically it performs matrix-vector products
-    (`operator.mv`) that produce the same results as the input `operator`.
-    """
-    _default_not_implemented("materialise", operator)
-
-
-@materialise.register(JacobianLinearOperator)
-def _(operator):
-    return None
-
-
-@materialise.register(FunctionLinearOperator)
-def _(operator):
-    return None
-
-
-@materialise.register(TangentLinearOperator)
-def _(operator):
-    primal_out, tangent_out = eqx.filter_jvp(
-        materialise, (operator.primal,), (operator.tangent,)
-    )
-    return TangentLinearOperator(primal_out, tangent_out)
 
 
 # linearise
@@ -388,11 +306,6 @@ def linearise(operator) :
     (`operator.mv`) that produce the same results as the input `operator`.
     """
     _default_not_implemented("linearise", operator)
-
-
-@linearise.register(FunctionLinearOperator)
-def _(operator):
-    return operator
 
 
 @linearise.register(JacobianLinearOperator)
@@ -431,11 +344,6 @@ def conj(operator) :
     _default_not_implemented("conj", operator)
 
 
-@conj.register(JacobianLinearOperator)
-def _(operator):
-    return conj(linearise(operator))
-
-
 @conj.register(FunctionLinearOperator)
 def _(operator):
     return FunctionLinearOperator(
@@ -444,14 +352,3 @@ def _(operator):
         operator.tags,
     )
 
-
-@conj.register(AuxLinearOperator)
-def _(operator):
-    return conj(operator.operator)
-
-
-@conj.register(TangentLinearOperator)
-def _(operator):
-    c = lambda operator: conj(operator)
-    primal_out, tangent_out = eqx.filter_jvp(c, (operator.primal,), (operator.tangent,))
-    return TangentLinearOperator(primal_out, tangent_out)
