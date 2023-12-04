@@ -88,23 +88,10 @@ class IdentityLinearOperator(eqx.Module):
         else:
             raise ValueError()
 
-    def as_matrix(self):
-        return jnp.eye(self.out_size(), self.in_size())
-
-    def transpose(self):
-        return IdentityLinearOperator(self.out_structure(), self.in_structure())
 
     def in_structure(self):
         leaves, treedef = self.input_structure
         return jtu.tree_unflatten(treedef, leaves)
-
-    def out_structure(self):
-        leaves, treedef = self.output_structure
-        return jtu.tree_unflatten(treedef, leaves)
-
-    @property
-    def tags(self):
-        return frozenset()
 
 
 class AuxLinearOperator(eqx.Module):
@@ -194,21 +181,6 @@ class JacobianLinearOperator(eqx.Module):
         self.args = args
         self.tags = None
 
-    def mv(self, vector):
-        fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
-        t, out = jax.jvp(fn, (self.x,), (vector,))
-        # jax.debug.print("in mv {t} {o}", t=t, o=out)
-        return out
-
-    def as_matrix(self):
-        return materialise(self).as_matrix()
-
-    def transpose(self):
-        fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
-        # Works because vjpfn is a PyTree
-        _, vjpfn = jax.vjp(fn, self.x)
-        vjpfn = _Unwrap(vjpfn)
-        return FunctionLinearOperator(vjpfn, self.out_structure(), self.tags)
 
     def in_structure(self):
         return jax.eval_shape(lambda: self.x)
@@ -305,19 +277,6 @@ class TangentLinearOperator(eqx.Module):
         as_matrix = lambda operator: operator.as_matrix()
         out, t_out = eqx.filter_jvp(as_matrix, (self.primal,), (self.tangent,))
         return jtu.tree_map(eqxi.materialise_zeros, out, t_out, is_leaf=_is_none)
-
-    def transpose(self):
-        transpose = lambda operator: operator.transpose()
-        primal_out, tangent_out = eqx.filter_jvp(
-            transpose, (self.primal,), (self.tangent,)
-        )
-        return TangentLinearOperator(primal_out, tangent_out)
-
-    def in_structure(self):
-        return self.primal.in_structure()
-
-    def out_structure(self):
-        return self.primal.out_structure()
 
 
 def _default_not_implemented(name: str, operator) -> NoReturn:
