@@ -148,29 +148,9 @@ def _linear_solve_jvp(primals, tangents):
     return out, t_out
 
 
-
 @eqxi.filter_primitive_transpose(materialise_zeros=True)  # pyright: ignore
 def _linear_solve_transpose(inputs, cts_out):
-    cts_solution, _, _ = cts_out
-    operator, state, vector, options, solver, _ = inputs
-
-    operator_transpose = operator.transpose()
-    state_transpose, options_transpose = solver.transpose(state, options)
-    cts_vector, _, _ = eqxi.filter_primitive_bind(
-        linear_solve_p,
-        operator_transpose,
-        state_transpose,
-        cts_solution,
-        options_transpose,
-        solver,
-        True,  # throw=True unconditionally: nowhere to pipe result to.
-    )
-    operator_none = jtu.tree_map(lambda _: None, operator)
-    state_none = jtu.tree_map(lambda _: None, state)
-    options_none = jtu.tree_map(lambda _: None, options)
-    solver_none = jtu.tree_map(lambda _: None, solver)
-    throw_none = None
-    return operator_none, state_none, cts_vector, options_none, solver_none, throw_none
+    return None, None, None, None, None, None
 
 
 # Call with `check_closure=False` so that the autocreated vmap rule works.
@@ -200,7 +180,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def init(
-            self, operator: AbstractLinearOperator, options: dict[str, Any]
+        self, operator: AbstractLinearOperator, options: dict[str, Any]
     ) -> _SolverState:
         """Do any initial computation on just the `operator`.
 
@@ -237,7 +217,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def compute(
-            self, state: _SolverState, vector: PyTree[Array], options: dict[str, Any]
+        self, state: _SolverState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         """Solves a linear system.
 
@@ -312,7 +292,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def transpose(
-            self, state: _SolverState, options: dict[str, Any]
+        self, state: _SolverState, options: dict[str, Any]
     ) -> tuple[_SolverState, dict[str, Any]]:
         """Transposes the result of [`lineax.AbstractLinearSolver.init`][].
 
@@ -343,7 +323,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def conj(
-            self, state: _SolverState, options: dict[str, Any]
+        self, state: _SolverState, options: dict[str, Any]
     ) -> tuple[_SolverState, dict[str, Any]]:
         """Conjugate the result of [`lineax.AbstractLinearSolver.init`][].
 
@@ -447,10 +427,10 @@ class AutoLinearSolver(AbstractLinearSolver[_AutoLinearSolverState]):
         return token, _lookup(token).init(operator, options)
 
     def compute(
-            self,
-            state: _AutoLinearSolverState,
-            vector: PyTree[Array],
-            options: dict[str, Any],
+        self,
+        state: _AutoLinearSolverState,
+        vector: PyTree[Array],
+        options: dict[str, Any],
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         token, state = state
         solver = _lookup(token)
@@ -490,13 +470,13 @@ AutoLinearSolver.__init__.__doc__ = """**Arguments:**
 # TODO(kidger): support auxiliary outputs
 @eqx.filter_jit
 def linear_solve(
-        operator: AbstractLinearOperator,
-        vector: PyTree[ArrayLike],
-        solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
-        *,
-        options: Optional[dict[str, Any]] = None,
-        state: PyTree[Any] = sentinel,
-        throw: bool = True,
+    operator: AbstractLinearOperator,
+    vector: PyTree[ArrayLike],
+    solver: AbstractLinearSolver = AutoLinearSolver(well_posed=True),
+    *,
+    options: Optional[dict[str, Any]] = None,
+    state: PyTree[Any] = sentinel,
+    throw: bool = True,
 ) -> Solution:
     r"""Solves a linear system.
 

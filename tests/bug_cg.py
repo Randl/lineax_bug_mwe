@@ -30,7 +30,13 @@ from jaxtyping import Scalar
 from typing_extensions import TYPE_CHECKING
 from typing_extensions import TypeAlias
 
-from tests.bug_misc import preconditioner_and_y0, max_norm, resolve_rcond, tree_dot, tree_where
+from tests.bug_misc import (
+    preconditioner_and_y0,
+    max_norm,
+    resolve_rcond,
+    tree_dot,
+    tree_where,
+)
 from tests.bug_opers import linearise, AbstractLinearOperator, conj
 from tests.bug_solution import RESULTS
 
@@ -50,7 +56,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def init(
-            self, operator: AbstractLinearOperator, options: dict[str, Any]
+        self, operator: AbstractLinearOperator, options: dict[str, Any]
     ) -> _SolverState:
         """Do any initial computation on just the `operator`.
 
@@ -87,7 +93,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def compute(
-            self, state: _SolverState, vector: PyTree[Array], options: dict[str, Any]
+        self, state: _SolverState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         """Solves a linear system.
 
@@ -162,7 +168,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def transpose(
-            self, state: _SolverState, options: dict[str, Any]
+        self, state: _SolverState, options: dict[str, Any]
     ) -> tuple[_SolverState, dict[str, Any]]:
         """Transposes the result of [`lineax.AbstractLinearSolver.init`][].
 
@@ -193,7 +199,7 @@ class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
 
     @abc.abstractmethod
     def conj(
-            self, state: _SolverState, options: dict[str, Any]
+        self, state: _SolverState, options: dict[str, Any]
     ) -> tuple[_SolverState, dict[str, Any]]:
         """Conjugate the result of [`lineax.AbstractLinearSolver.init`][].
 
@@ -249,7 +255,7 @@ class _CG(AbstractLinearSolver[_CGState]):
     #    additional information.
     # 4. We don't try to support complex numbers. (Yet.)
     def compute(
-            self, state: _CGState, vector: PyTree[Array], options: dict[str, Any]
+        self, state: _CGState, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator, is_nsd = state
         if self._normal:
@@ -277,7 +283,7 @@ class _CG(AbstractLinearSolver[_CGState]):
         leaves, _ = jtu.tree_flatten(vector)
         size = sum(leaf.size for leaf in leaves)
         max_steps = 10 * size  # Copied from SciPy!
-        r0 = (vector ** ω - mv(y0) ** ω).ω
+        r0 = (vector**ω - mv(y0) ** ω).ω
         p0 = preconditioner.mv(r0)
         gamma0 = tree_dot(r0, p0)
         rcond = resolve_rcond(None, size, size, jnp.result_type(*leaves))
@@ -290,10 +296,10 @@ class _CG(AbstractLinearSolver[_CGState]):
             0,
         )
         has_scale = not (
-                isinstance(self.atol, (int, float))
-                and isinstance(self.rtol, (int, float))
-                and self.atol == 0
-                and self.rtol == 0
+            isinstance(self.atol, (int, float))
+            and isinstance(self.rtol, (int, float))
+            and self.atol == 0
+            and self.rtol == 0
         )
         if has_scale:
             b_scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
@@ -304,8 +310,8 @@ class _CG(AbstractLinearSolver[_CGState]):
             # the `y` and the `b` spaces.
             if has_scale:
                 y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
-                norm1 = self.norm((r ** ω / b_scale ** ω).ω)  # pyright: ignore
-                norm2 = self.norm((diff ** ω / y_scale ** ω).ω)
+                norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
+                norm2 = self.norm((diff**ω / y_scale**ω).ω)
                 return (norm1 > 1) | (norm2 > 1)
             else:
                 return True
@@ -327,8 +333,8 @@ class _CG(AbstractLinearSolver[_CGState]):
             alpha = tree_where(
                 jnp.abs(inner_prod) > 100 * rcond * gamma, alpha, jnp.nan
             )
-            diff = (alpha * p ** ω).ω
-            y = (y ** ω + diff ** ω).ω
+            diff = (alpha * p**ω).ω
+            y = (y**ω + diff**ω).ω
             step = step + 1
 
             # E.g. see B.2 of
@@ -336,10 +342,10 @@ class _CG(AbstractLinearSolver[_CGState]):
             # We compute the residual the "expensive" way every now and again, so as to
             # correct numerical rounding errors.
             def stable_r():
-                return (vector ** ω - mv(y) ** ω).ω
+                return (vector**ω - mv(y) ** ω).ω
 
             def cheap_r():
-                return (r ** ω - alpha * mat_p ** ω).ω
+                return (r**ω - alpha * mat_p**ω).ω
 
             stable_step = (eqxi.unvmap_max(step) % self.stabilise_every) == 0
             stable_step = eqxi.nonbatchable(stable_step)
@@ -349,7 +355,7 @@ class _CG(AbstractLinearSolver[_CGState]):
             gamma_prev = gamma
             gamma = tree_dot(r, z)
             beta = gamma / gamma_prev
-            p = (z ** ω + beta * p ** ω).ω
+            p = (z**ω + beta * p**ω).ω
             return diff, y, r, p, gamma, step
 
         _, solution, _, _, _, num_steps = lax.while_loop(

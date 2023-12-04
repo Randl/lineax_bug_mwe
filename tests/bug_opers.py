@@ -40,17 +40,13 @@ from tests.bug_type import sentinel
 _T = TypeVar("_T")
 _FlatPyTree = tuple[list[_T], jtu.PyTreeDef]
 
-
-class _Leaf:  # not a pytree
-    def __init__(self, value):
-        self.value = value
-
 def _inexact_structure_impl(x):
     return x
 
 
 def _inexact_structure(x: PyTree[jax.ShapeDtypeStruct]) -> PyTree[jax.ShapeDtypeStruct]:
     return jax.eval_shape(_inexact_structure_impl, x)
+
 
 class AbstractLinearOperator(eqx.Module):
     """Abstract base class for all linear operators.
@@ -74,7 +70,7 @@ class AbstractLinearOperator(eqx.Module):
 
     @abc.abstractmethod
     def mv(
-            self, vector: PyTree[Inexact[Array, " _b"]]
+        self, vector: PyTree[Inexact[Array, " _b"]]
     ) -> PyTree[Inexact[Array, " _a"]]:
         """Computes a matrix-vector product between this operator and a `vector`.
 
@@ -227,24 +223,6 @@ class IdentityLinearOperator(AbstractLinearOperator):
     def tags(self):
         return frozenset()
 
-def _matmul(matrix: ArrayLike, vector: ArrayLike) -> Array:
-    # matrix has structure [leaf(out), leaf(in)]
-    # vector has structure [leaf(in)]
-    # return has structure [leaf(out)]
-    return jnp.tensordot(
-        matrix, vector, axes=jnp.ndim(vector), precision=lax.Precision.HIGHEST
-    )
-
-
-def _tree_matmul(matrix: PyTree[ArrayLike], vector: PyTree[ArrayLike]) -> PyTree[Array]:
-    # matrix has structure [tree(in), leaf(out), leaf(in)]
-    # vector has structure [tree(in), leaf(in)]
-    # return has structure [leaf(out)]
-    matrix = jtu.tree_leaves(matrix)
-    vector = jtu.tree_leaves(vector)
-    assert len(matrix) == len(vector)
-    return sum([_matmul(m, v) for m, v in zip(matrix, vector)])
-
 
 class AuxLinearOperator(AbstractLinearOperator):
     """Internal to lineax. Used to represent a linear operator with additional
@@ -297,12 +275,12 @@ class JacobianLinearOperator(AbstractLinearOperator):
     tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
-            self,
-            fn: Callable,
-            x: PyTree[ArrayLike],
-            args: PyTree[Any] = None,
-            tags: Union[object, Iterable[object]] = (),
-            _has_aux: bool = False,
+        self,
+        fn: Callable,
+        x: PyTree[ArrayLike],
+        args: PyTree[Any] = None,
+        tags: Union[object, Iterable[object]] = (),
+        _has_aux: bool = False,
     ):
         """**Arguments:**
 
@@ -371,10 +349,10 @@ class FunctionLinearOperator(AbstractLinearOperator):
     tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
-            self,
-            fn: Callable[[PyTree[Inexact[Array, "..."]]], PyTree[Inexact[Array, "..."]]],
-            input_structure: PyTree[jax.ShapeDtypeStruct],
-            tags: Union[object, Iterable[object]] = (),
+        self,
+        fn: Callable[[PyTree[Inexact[Array, "..."]]], PyTree[Inexact[Array, "..."]]],
+        input_structure: PyTree[jax.ShapeDtypeStruct],
+        tags: Union[object, Iterable[object]] = (),
     ):
         """**Arguments:**
 
@@ -524,6 +502,7 @@ def materialise(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     """
     _default_not_implemented("materialise", operator)
 
+
 @materialise.register(JacobianLinearOperator)
 def _(operator):
     return None
@@ -608,7 +587,6 @@ def conj(operator: AbstractLinearOperator) -> AbstractLinearOperator:
     Another linear operator.
     """
     _default_not_implemented("conj", operator)
-
 
 
 @conj.register(JacobianLinearOperator)

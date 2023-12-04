@@ -43,7 +43,7 @@ def tree_dot(a: PyTree[Array], b: PyTree[Array]) -> Array:
 
 
 def tree_where(
-        pred: Bool[ArrayLike, ""], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
+    pred: Bool[ArrayLike, ""], true: PyTree[ArrayLike], false: PyTree[ArrayLike]
 ) -> PyTree[Array]:
     keep = lambda a, b: jnp.where(pred, a, b)
     return jtu.tree_map(keep, true, false)

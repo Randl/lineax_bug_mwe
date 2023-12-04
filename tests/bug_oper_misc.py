@@ -41,6 +41,7 @@ class _Unwrap(eqx.Module):
         (f,) = self.fn(x)
         return f
 
+
 def default_floating_dtype():
     if jax.config.jax_enable_x64:  # pyright: ignore
         return jnp.float64
@@ -66,4 +67,3 @@ def jacobian(fn, in_size, out_size, holomorphic=False, has_aux=False):
         return jax.jacfwd(fn, holomorphic=holomorphic, has_aux=has_aux)
     else:
         return jax.jacrev(fn, holomorphic=holomorphic, has_aux=has_aux)
-
