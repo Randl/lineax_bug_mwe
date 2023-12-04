@@ -45,30 +45,12 @@ class _Leaf:  # not a pytree
     def __init__(self, value):
         self.value = value
 
-
-def _inexact_structure_impl2(x):
-    if jnp.issubdtype(x.dtype, jnp.inexact):
-        return x
-    else:
-        return x.astype(default_floating_dtype())
-
-
 def _inexact_structure_impl(x):
-    return jtu.tree_map(_inexact_structure_impl2, x)
+    return x
 
 
 def _inexact_structure(x: PyTree[jax.ShapeDtypeStruct]) -> PyTree[jax.ShapeDtypeStruct]:
     return jax.eval_shape(_inexact_structure_impl, x)
-
-
-def _frozenset(x: Union[object, Iterable[object]]) -> frozenset[object]:
-    try:
-        iter_x = iter(x)  # pyright: ignore
-    except TypeError:
-        return frozenset([x])
-    else:
-        return frozenset(iter_x)
-
 
 class AbstractLinearOperator(eqx.Module):
     """Abstract base class for all linear operators.
@@ -349,7 +331,7 @@ class JacobianLinearOperator(AbstractLinearOperator):
         self.fn = fn
         self.x = x
         self.args = args
-        self.tags = _frozenset(tags)
+        self.tags = None
 
     def mv(self, vector):
         fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
@@ -412,7 +394,7 @@ class FunctionLinearOperator(AbstractLinearOperator):
         input_structure = _inexact_structure(input_structure)
         self.fn = fn
         self.input_structure = jtu.tree_flatten(input_structure)
-        self.tags = _frozenset(tags)
+        self.tags = None
 
     def mv(self, vector):
         return self.fn(vector)

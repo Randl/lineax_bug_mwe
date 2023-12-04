@@ -50,10 +50,6 @@ def _to_struct(x):
         return x
 
 
-def _assert_false(x):
-    assert False
-
-
 def _is_none(x):
     return x is None
 
@@ -110,7 +106,6 @@ def _linear_solve_abstract_eval(operator, state, vector, options, solver, throw)
 def _linear_solve_jvp(primals, tangents):
     operator, state, vector, options, solver, throw = primals
     t_operator, t_state, t_vector, t_options, t_solver, t_throw = tangents
-    jtu.tree_map(_assert_false, (t_state, t_options, t_solver, t_throw))
     del t_state, t_options, t_solver, t_throw
 
     # Note that we pass throw=True unconditionally to all the tangent solves, as there
@@ -153,28 +148,12 @@ def _linear_solve_jvp(primals, tangents):
     return out, t_out
 
 
-def _is_undefined(x):
-    return isinstance(x, ad.UndefinedPrimal)
-
-
-def _assert_defined(x):
-    assert not _is_undefined(x)
-
-
-def _keep_undefined(v, ct):
-    if _is_undefined(v):
-        return ct
-    else:
-        return None
-
 
 @eqxi.filter_primitive_transpose(materialise_zeros=True)  # pyright: ignore
 def _linear_solve_transpose(inputs, cts_out):
     cts_solution, _, _ = cts_out
     operator, state, vector, options, solver, _ = inputs
-    jtu.tree_map(
-        _assert_defined, (operator, state, options, solver), is_leaf=_is_undefined
-    )
+
     operator_transpose = operator.transpose()
     state_transpose, options_transpose = solver.transpose(state, options)
     cts_vector, _, _ = eqxi.filter_primitive_bind(
@@ -185,9 +164,6 @@ def _linear_solve_transpose(inputs, cts_out):
         options_transpose,
         solver,
         True,  # throw=True unconditionally: nowhere to pipe result to.
-    )
-    cts_vector = jtu.tree_map(
-        _keep_undefined, vector, cts_vector, is_leaf=_is_undefined
     )
     operator_none = jtu.tree_map(lambda _: None, operator)
     state_none = jtu.tree_map(lambda _: None, state)
