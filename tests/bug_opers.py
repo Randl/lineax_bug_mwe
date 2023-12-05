@@ -1,4 +1,5 @@
 import functools as ft
+import math
 from collections.abc import Callable
 from typing import (
     Any,
@@ -11,6 +12,8 @@ from typing import (
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
+import jax.flatten_util as jfu
+import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import (  # pyright: ignore
@@ -94,6 +97,9 @@ class AuxLinearOperator(eqx.Module):
 
     operator: Any
     aux: PyTree[Array]
+
+    def as_matrix(self):
+        return materialise(self).as_matrix()
 
     def mv(self, vector):
         return self.operator.mv(vector)
@@ -239,6 +245,176 @@ class FunctionLinearOperator(eqx.Module):
         return eqxi.cached_filter_eval_shape(self.fn, self.in_structure())
 
 
+class _Leaf:  # not a pytree
+    def __init__(self, value):
+        self.value = value
+
+
+def _matmul(matrix: ArrayLike, vector: ArrayLike) -> Array:
+    # matrix has structure [leaf(out), leaf(in)]
+    # vector has structure [leaf(in)]
+    # return has structure [leaf(out)]
+    return jnp.tensordot(
+        matrix, vector, axes=jnp.ndim(vector), precision=lax.Precision.HIGHEST
+    )
+
+
+def _tree_matmul(matrix: PyTree[ArrayLike], vector: PyTree[ArrayLike]) -> PyTree[Array]:
+    # matrix has structure [tree(in), leaf(out), leaf(in)]
+    # vector has structure [tree(in), leaf(in)]
+    # return has structure [leaf(out)]
+    matrix = jtu.tree_leaves(matrix)
+    vector = jtu.tree_leaves(vector)
+    assert len(matrix) == len(vector)
+    return sum([_matmul(m, v) for m, v in zip(matrix, vector)])
+
+
+# The `{input,output}_structure`s have to be static because otherwise abstract
+# evaluation rules will promote them to ShapedArrays.
+class PyTreeLinearOperator(eqx.Module):
+    """Represents a PyTree of floating-point JAX arrays as a linear operator.
+
+    This is basically a generalisation of [`lineax.MatrixLinearOperator`][], from
+    taking just a single array to take a PyTree-of-arrays. (And likewise from returning
+    a single array to returning a PyTree-of-arrays.)
+
+    Specifically, suppose we want this to be a linear operator `X -> Y`, for which
+    elements of `X` are PyTrees with structure `T` whose `i`th leaf is a floating-point
+    JAX array of shape `x_shape_i`, and elements of `Y` are PyTrees with structure `S`
+    whose `j`th leaf is a floating-point JAX array of has shape `y_shape_j`. Then the
+    input PyTree should have structure `T`-compose-`S`, and its `(i, j)`-th  leaf should
+    be a floating-point JAX array of shape `(*x_shape_i, *y_shape_j)`.
+
+    !!! Example
+
+        ```python
+        # Suppose `x` is a member of our input space, with the following pytree
+        # structure:
+        eqx.tree_pprint(x)  # [f32[5, 9], f32[3]]
+
+        # Suppose `y` is a member of our output space, with the following pytree
+        # structure:
+        eqx.tree_pprint(y)
+        # {"a": f32[1, 2]}
+
+        # then `pytree` should be a pytree with the following structure:
+        eqx.tree_pprint(pytree)  # {"a": [f32[1, 2, 5, 9], f32[1, 2, 3]]}
+        ```
+    """
+
+    pytree: PyTree[Inexact[Array, "..."]]
+    output_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
+    tags: frozenset[object] = eqx.field(static=True)
+    input_structure: _FlatPyTree[jax.ShapeDtypeStruct] = eqx.field(static=True)
+
+    def __init__(
+        self,
+        pytree: PyTree[ArrayLike],
+        output_structure: PyTree[jax.ShapeDtypeStruct],
+        tags: Union[object, frozenset[object]] = (),
+    ):
+        """**Arguments:**
+
+        - `pytree`: this should be a PyTree, with structure as specified in
+            [`lineax.PyTreeLinearOperator`][].
+        - `out_structure`: the structure of the output space. This should be a PyTree of
+            `jax.ShapeDtypeStruct`s. (The structure of the input space is then
+            automatically derived from the structure of `pytree`.)
+        - `tags`: any tags indicating whether this operator has any particular
+            properties, like symmetry or positive-definite-ness. Note that these
+            properties are unchecked and you may get incorrect values elsewhere if these
+            tags are wrong.
+        """
+        output_structure = _inexact_structure(output_structure)
+        self.pytree = jtu.tree_map(inexact_asarray, pytree)
+        self.output_structure = jtu.tree_flatten(output_structure)
+        self.tags = None
+
+        # self.out_structure() has structure [tree(out)]
+        # self.pytree has structure [tree(out), tree(in), leaf(out), leaf(in)]
+        def get_structure(struct, subpytree):
+            # subpytree has structure [tree(in), leaf(out), leaf(in)]
+            def sub_get_structure(leaf):
+                shape = jnp.shape(leaf)  # [leaf(out), leaf(in)]
+                ndim = len(struct.shape)
+                if shape[:ndim] != struct.shape:
+                    raise ValueError(
+                        "`pytree` and `output_structure` are not consistent"
+                    )
+                return jax.ShapeDtypeStruct(shape=shape[ndim:], dtype=jnp.dtype(leaf))
+
+            return _Leaf(jtu.tree_map(sub_get_structure, subpytree))
+
+        if output_structure is None:
+            # Implies that len(input_structures) > 0
+            raise ValueError("Cannot have trivial output_structure")
+        input_structures = jtu.tree_map(get_structure, output_structure, self.pytree)
+        input_structures = jtu.tree_leaves(input_structures)
+        input_structure = input_structures[0].value
+        for val in input_structures[1:]:
+            if eqx.tree_equal(input_structure, val.value) is not True:
+                raise ValueError(
+                    "`pytree` does not have a consistent `input_structure`"
+                )
+        self.input_structure = jtu.tree_flatten(input_structure)
+
+    def mv(self, vector):
+        # vector has structure [tree(in), leaf(in)]
+        # self.out_structure() has structure [tree(out)]
+        # self.pytree has structure [tree(out), tree(in), leaf(out), leaf(in)]
+        # return has struture [tree(out), leaf(out)]
+        def matmul(_, matrix):
+            return _tree_matmul(matrix, vector)
+
+        return jtu.tree_map(matmul, self.out_structure(), self.pytree)
+
+    def as_matrix(self):
+        dtype = jnp.result_type(*jtu.tree_leaves(self.pytree))
+
+        def concat_in(struct, subpytree):
+            leaves = jtu.tree_leaves(subpytree)
+            assert all(
+                leaf.shape[: len(struct.shape)] == struct.shape for leaf in leaves
+            )
+            size = math.prod(struct.shape)
+            leaves = [
+                leaf.astype(dtype).reshape(size, -1) if leaf.size > 0 else leaf
+                for leaf in leaves
+            ]
+            return jnp.concatenate(leaves, axis=1)
+
+        matrix = jtu.tree_map(concat_in, self.out_structure(), self.pytree)
+        matrix = jtu.tree_leaves(matrix)
+        return jnp.concatenate(matrix, axis=0)
+
+    def transpose(self):
+        def _transpose(struct, subtree):
+            def _transpose_impl(leaf):
+                return jnp.moveaxis(leaf, source, dest)
+
+            source = list(range(struct.ndim))
+            dest = list(range(-struct.ndim, 0))
+            return jtu.tree_map(_transpose_impl, subtree)
+
+        pytree_transpose = jtu.tree_map(_transpose, self.out_structure(), self.pytree)
+        pytree_transpose = jtu.tree_transpose(
+            jtu.tree_structure(self.out_structure()),
+            jtu.tree_structure(self.in_structure()),
+            pytree_transpose,
+        )
+        return PyTreeLinearOperator(
+            pytree_transpose, self.in_structure(), self.tags
+        )
+
+    def in_structure(self):
+        leaves, treedef = self.input_structure
+        return jtu.tree_unflatten(treedef, leaves)
+
+    def out_structure(self):
+        leaves, treedef = self.output_structure
+        return jtu.tree_unflatten(treedef, leaves)
+
+
 def _is_none(x):
     return x is None
 
@@ -338,3 +514,103 @@ def _(operator):
         operator.in_structure(),
         operator.tags,
     )
+
+
+# materialise
+
+
+@ft.singledispatch
+def materialise(operator):
+    """Materialises a linear operator. This returns another linear operator.
+
+    Mathematically speaking this is just the identity function. And indeed most linear
+    operators will be returned unchanged.
+
+    For specifically [`lineax.JacobianLinearOperator`][] and
+    [`lineax.FunctionLinearOperator`][] then the linear operator is materialised in
+    memory. That is, it becomes defined as a matrix (or pytree of arrays), rather
+    than being defined only through its matrix-vector product
+    ([`lineax.AbstractLinearOperator.mv`][]).
+
+    Materialisation sometimes improves compile time or run time. It usually increases
+    memory usage.
+
+    For example:
+    ```python
+    large_function = ...
+    operator = lx.FunctionLinearOperator(large_function, ...)
+
+    # Option 1
+    out1 = operator.mv(vector1)  # Traces and compiles `large_function`
+    out2 = operator.mv(vector2)  # Traces and compiles `large_function` again!
+    out3 = operator.mv(vector3)  # Traces and compiles `large_function` a third time!
+    # All that compilation might lead to long compile times.
+    # If `large_function` takes a long time to run, then this might also lead to long
+    # run times.
+
+    # Option 2
+    operator = lx.materialise(operator)  # Traces and compiles `large_function` and
+                                           # stores the result as a matrix.
+    out1 = operator.mv(vector1)  # Each of these just computes a matrix-vector product
+    out2 = operator.mv(vector2)  # against the stored matrix.
+    out3 = operator.mv(vector3)  #
+    # Now, `large_function` is only compiled once, and only ran once.
+    # However, storing the matrix might take a lot of memory, and the initial
+    # computation may-or-may-not take a long time to run.
+    ```
+    Generally speaking it is worth first setting up your problem without
+    `lx.materialise`, and using it as an optional optimisation if you find that it
+    helps your particular problem.
+
+    **Arguments:**
+
+    - `operator`: a linear operator.
+
+    **Returns:**
+
+    Another linear operator. Mathematically it performs matrix-vector products
+    (`operator.mv`) that produce the same results as the input `operator`.
+    """
+    _default_not_implemented("materialise", operator)
+
+
+@materialise.register(PyTreeLinearOperator)
+@materialise.register(IdentityLinearOperator)
+def _(operator):
+    return operator
+
+
+@materialise.register(AuxLinearOperator)  # pyright: ignore
+def _(operator):
+    return materialise(operator.operator)
+
+
+@materialise.register(JacobianLinearOperator)
+def _(operator):
+    fn = _NoAuxIn(operator.fn, operator.args)
+    jac, aux = jacobian(
+        fn,
+        operator.in_size(),
+        operator.out_size(),
+        holomorphic=jnp.iscomplexobj(operator.x),
+        has_aux=True,
+    )(operator.x)
+    out = PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
+    return AuxLinearOperator(out, aux)
+
+
+@materialise.register(FunctionLinearOperator)
+def _(operator):
+    flat, unravel = eqx.filter_eval_shape(jfu.ravel_pytree, operator.in_structure())
+    eye = jnp.eye(flat.size, dtype=flat.dtype)
+    jac = jax.vmap(lambda x: operator.fn(unravel(x)), out_axes=-1)(eye)
+
+    def batch_unravel(x):
+        assert x.ndim > 0
+        unravel_ = unravel
+        for _ in range(x.ndim - 1):
+            unravel_ = jax.vmap(unravel_)
+        return unravel_(x)
+
+    jac = jtu.tree_map(batch_unravel, jac)
+    return PyTreeLinearOperator(jac, operator.out_structure(), operator.tags)
