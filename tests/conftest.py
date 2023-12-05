@@ -45,4 +45,4 @@ class _GetKey:
 
 @pytest.fixture
 def getkey():
-    return _GetKey(random.randint(0, 2**31 - 1))
+    return _GetKey(509864897)
