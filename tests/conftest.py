@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import dataclasses
-import random
 
 import jax
 import jax.random as jr

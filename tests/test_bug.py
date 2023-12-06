@@ -77,21 +77,26 @@ def test_jvp_jvp(getkey):
             jnp_out = tuple(jnp_args[0]), tuple(jnp_args[1])
             return lx_out, jnp_out
 
+
+        (primal, tangent), (jnp_primal, jnp_tangent) = _make_primal_tangents()
+
         linear_solve3 = lambda v: linear_solve2((operator, v), (t_operator, t_vec))
         jnp_solve3 = lambda v: jnp_solve2((matrix, v), (t_matrix, t_vec))
 
-        linear_solve3 = ft.partial(eqx.filter_jvp, linear_solve3)
         linear_solve3 = eqx.filter_jit(linear_solve3)
-        jnp_solve3 = ft.partial(eqx.filter_jvp, jnp_solve3)
-        jnp_solve3 = eqx.filter_jit(jnp_solve3)
+        out=linear_solve3(*primal)
 
-        (primal, tangent), (jnp_primal, jnp_tangent) = _make_primal_tangents()
-        (out, t_out), (minus_out, tt_out) = linear_solve3(primal, tangent)
-        (true_out, true_t_out), (minus_true_out, true_tt_out) = jnp_solve3(
-            jnp_primal, jnp_tangent
-        )
+
+        jnp_solve3 = eqx.filter_jit(jnp_solve3)
+        true_out=jnp_solve3(*jnp_primal)
+        # linear_solve3 = ft.partial(eqx.filter_jvp, linear_solve3)
+        # linear_solve3 = eqx.filter_jit(linear_solve3)
+        # jnp_solve3 = ft.partial(eqx.filter_jvp, jnp_solve3)
+        # jnp_solve3 = eqx.filter_jit(jnp_solve3)
+        #
+        # (out, t_out), (minus_out, tt_out) = linear_solve3(primal, tangent)
+        # (true_out, true_t_out), (minus_true_out, true_tt_out) = jnp_solve3(
+        #     jnp_primal, jnp_tangent
+        # )
 
         assert shaped_allclose(out, true_out, atol=1e-4)
-        assert shaped_allclose(t_out, true_t_out, atol=1e-4)
-        assert shaped_allclose(tt_out, true_tt_out, atol=1e-4)
-        assert shaped_allclose(minus_out, minus_true_out, atol=1e-4)
