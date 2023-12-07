@@ -146,7 +146,6 @@ class _CG(eqx.Module):
         def body_fun(value):
             _, y, r, p, gamma, step = value
             mat_p = mv(p)
-            jax.debug.print("inside {st} compute {p} {mp}", st=step, mp=mat_p, p=p)
 
             inner_prod = tree_dot(p, mat_p)
             alpha = gamma / inner_prod
@@ -157,19 +156,9 @@ class _CG(eqx.Module):
             y = (y**ω + diff**ω).ω
             step = step + 1
 
-            # E.g. see B.2 of
-            # https://www.cs.cmu.edu/~quake-papers/painless-conjugate-gradient.pdf
-            # We compute the residual the "expensive" way every now and again, so as to
-            # correct numerical rounding errors.
             def stable_r():
                 return (vector**ω - mv(y) ** ω).ω
-
-            def cheap_r():
-                return (r**ω - alpha * mat_p**ω).ω
-
-            stable_step = (eqxi.unvmap_max(step) % self.stabilise_every) == 0
-            stable_step = eqxi.nonbatchable(stable_step)
-            r = lax.cond(stable_step, stable_r, cheap_r)
+            r = stable_r()
 
             z = preconditioner.mv(r)
             gamma_prev = gamma
