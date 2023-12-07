@@ -1,24 +1,21 @@
-import abc
 import functools as ft
 from typing import Any
-from typing import Generic, Optional, TypeVar
+from typing import Optional, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
 import jax.core
-import jax.numpy as jnp
 import jax.tree_util as jtu
 from equinox.internal import ω
-from jaxtyping import Array, ArrayLike, PyTree
-from typing_extensions import TypeAlias
+from jaxtyping import ArrayLike, PyTree
 
 from tests.bug_oper_misc import inexact_asarray
 from tests.bug_opers import (
     linearise,
     TangentLinearOperator,
 )
-from tests.bug_solution import RESULTS, Solution
+from tests.bug_solution import Solution
 
 
 #
@@ -48,21 +45,6 @@ def _sum(*args):
 def _linear_solve_impl(_, state, vector, options, solver, throw, *, check_closure):
     out = solver.compute(state, vector, options)
     solution, result, stats = out
-    has_nonfinites = jnp.any(
-        jnp.stack(
-            [jnp.any(jnp.invert(jnp.isfinite(x))) for x in jtu.tree_leaves(solution)]
-        )
-    )
-    result = RESULTS.where(
-        (result == RESULTS.successful) & has_nonfinites,
-        RESULTS.singular,
-        result,
-    )
-    if throw:
-        solution, result, stats = result.error_if(
-            (solution, result, stats),
-            result != RESULTS.successful,
-        )
     return solution, result, stats
 
 
@@ -98,8 +80,6 @@ def _linear_solve_jvp(primals, tangents):
         linear_solve_p, operator, state, vector, options, solver, throw
     )
 
-    jax.debug.print("In JVP {sol}", sol=solution)
-
     vecs = []
     sols = []
     if any(t is not None for t in jtu.tree_leaves(t_vector, is_leaf=_is_none)):
@@ -131,18 +111,13 @@ def _linear_solve_jvp(primals, tangents):
     return out, t_out
 
 
-@eqxi.filter_primitive_transpose(materialise_zeros=True)  # pyright: ignore
-def _linear_solve_transpose(inputs, cts_out):
-    return None, None, None, None, None, None
-
-
 # Call with `check_closure=False` so that the autocreated vmap rule works.
 linear_solve_p = eqxi.create_vprim(
     "linear_solve",
     eqxi.filter_primitive_def(ft.partial(_linear_solve_impl, check_closure=False)),
     _linear_solve_abstract_eval,
     _linear_solve_jvp,
-    _linear_solve_transpose,
+    lambda x: None,
 )
 # Then rebind so that the impl rule catches leaked-in tracers.
 linear_solve_p.def_impl(
@@ -158,194 +133,11 @@ eqxi.register_impl_finalisation(linear_solve_p)
 _SolverState = TypeVar("_SolverState")
 
 
-class AbstractLinearSolver(eqx.Module, Generic[_SolverState]):
-    """Abstract base class for all linear solvers."""
-
-    @abc.abstractmethod
-    def init(self, operator, options: dict[str, Any]) -> _SolverState:
-        """Do any initial computation on just the `operator`.
-
-        For example, an LU solver would compute the LU decomposition of the operator
-        (and this does not require knowing the vector yet).
-
-        It is common to need to solve the linear system `Ax=b` multiple times in
-        succession, with the same operator `A` and multiple vectors `b`. This method
-        improves efficiency by making it possible to re-use the computation performed
-        on just the operator.
-
-        !!! Example
-
-            ```python
-            operator = lx.MatrixLinearOperator(...)
-            vector1 = ...
-            vector2 = ...
-            solver = lx.LU()
-            state = solver.init(operator, options={})
-            solution1 = lx.linear_solve(operator, vector1, solver, state=state)
-            solution2 = lx.linear_solve(operator, vector2, solver, state=state)
-            ```
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-        - `options`: a dictionary of any extra options that the solver may wish to
-            accept.
-
-        **Returns:**
-
-        A PyTree of arbitrary Python objects.
-        """
-
-    @abc.abstractmethod
-    def compute(
-        self, state: _SolverState, vector: PyTree[Array], options: dict[str, Any]
-    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
-        """Solves a linear system.
-
-        **Arguments:**
-
-        - `state`: as returned from [`lineax.AbstractLinearSolver.init`][].
-        - `vector`: the vector to solve against.
-        - `options`: a dictionary of any extra options that the solver may wish to
-            accept. For example, [`lineax.CG`][] accepts a `preconditioner` option.
-
-        **Returns:**
-
-        A 3-tuple of:
-
-        - The solution to the linear system.
-        - An integer indicating the success or failure of the solve. This is an integer
-            which may be converted to a human-readable error message via
-            `lx.RESULTS[...]`.
-        - A dictionary of an extra statistics about the solve, e.g. the number of steps
-            taken.
-        """
-
-    @abc.abstractmethod
-    def allow_dependent_columns(self, operator) -> bool:
-        """Does this method ever produce non-NaN outputs for operators with linearly
-        dependent columns? (Even if only sometimes.)
-
-        If `True` then a more expensive backward pass is needed, to account for the
-        extra generality.
-
-        If you do not need to autodifferentiate through a custom linear solver then you
-        simply define this method as
-        ```python
-        class MyLinearSolver(AbstractLinearsolver):
-            def allow_dependent_columns(self, operator):
-                raise NotImplementedError
-        ```
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-
-        **Returns:**
-
-        Either `True` or `False`.
-        """
-
-    @abc.abstractmethod
-    def allow_dependent_rows(self, operator) -> bool:
-        """Does this method ever produce non-NaN outputs for operators with
-        linearly dependent rows? (Even if only sometimes)
-
-        If `True` then a more expensive backward pass is needed, to account for the
-        extra generality.
-
-        If you do not need to autodifferentiate through a custom linear solver then you
-        simply define this method as
-        ```python
-        class MyLinearSolver(AbstractLinearsolver):
-            def allow_dependent_rows(self, operator):
-                raise NotImplementedError
-        ```
-
-        **Arguments:**
-
-        - `operator`: a linear operator.
-
-        **Returns:**
-
-        Either `True` or `False`.
-        """
-
-    @abc.abstractmethod
-    def transpose(
-        self, state: _SolverState, options: dict[str, Any]
-    ) -> tuple[_SolverState, dict[str, Any]]:
-        """Transposes the result of [`lineax.AbstractLinearSolver.init`][].
-
-        That is, it should be the case that
-        ```python
-        state_transpose, _ = solver.transpose(solver.init(operator, options), options)
-        state_transpose2 = solver.init(operator.T, options)
-        ```
-        must be identical to each other.
-
-        It is relatively common (in particular when differentiating through a linear
-        solve) to need to solve both `Ax = b` and `A^T x = b`. This method makes it
-        possible to avoid computing both `solver.init(operator)` and
-        `solver.init(operator.T)` if one can be cheaply computed from the other.
-
-        **Arguments:**
-
-        - `state`: as returned from `solver.init`.
-        - `options`: any extra options that were passed to `solve.init`.
-
-        **Returns:**
-
-        A 2-tuple of:
-
-        - The state of the transposed operator.
-        - The options for the transposed operator.
-        """
-
-    @abc.abstractmethod
-    def conj(
-        self, state: _SolverState, options: dict[str, Any]
-    ) -> tuple[_SolverState, dict[str, Any]]:
-        """Conjugate the result of [`lineax.AbstractLinearSolver.init`][].
-
-        That is, it should be the case that
-        ```python
-        state_conj, _ = solver.conj(solver.init(operator, options), options)
-        state_conj2 = solver.init(conj(operator), options)
-        ```
-        must be identical to each other.
-
-        **Arguments:**
-
-        - `state`: as returned from `solver.init`.
-        - `options`: any extra options that were passed to `solve.init`.
-
-        **Returns:**
-
-        A 2-tuple of:
-
-        - The state of the conjugated operator.
-        - The options for the conjugated operator.
-        """
-
-
-_qr_token = eqxi.str2jax("qr_token")
-_diagonal_token = eqxi.str2jax("diagonal_token")
-_well_posed_diagonal_token = eqxi.str2jax("well_posed_diagonal_token")
-_tridiagonal_token = eqxi.str2jax("tridiagonal_token")
-_triangular_token = eqxi.str2jax("triangular_token")
-_cholesky_token = eqxi.str2jax("cholesky_token")
-_lu_token = eqxi.str2jax("lu_token")
-_svd_token = eqxi.str2jax("svd_token")
-
-_AutoLinearSolverState: TypeAlias = tuple[Any, Any]
-
-
 @eqx.filter_jit
 def linear_solve(
     operator,
     vector: PyTree[ArrayLike],
-    solver: AbstractLinearSolver = None,
+    solver=None,
     *,
     options: Optional[dict[str, Any]] = None,
     state: PyTree[Any] = None,
@@ -443,8 +235,6 @@ def linear_solve(
     if options is None:
         options = {}
     vector = jtu.tree_map(inexact_asarray, vector)
-    vector_struct = jax.eval_shape(lambda: vector)
-    operator_out_structure = operator.out_structure()
 
     state = eqxi.nondifferentiable(state, name="`lineax.linear_solve(..., state=...)`")
     options = eqxi.nondifferentiable(

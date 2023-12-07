@@ -58,7 +58,6 @@ class _CG(eqx.Module):
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator, is_nsd = state
 
-
         operator = linearise(operator)
 
         _mv = operator.mv
@@ -133,14 +132,7 @@ class _CG(eqx.Module):
             cond_fun, body_fun, initial_value
         )
 
-        result = RESULTS.where(
-            num_steps == max_steps,
-            RESULTS.singular,
-            RESULTS.successful,
-        )
-
-        stats = {"num_steps": num_steps, "max_steps": self.max_steps}
-        return solution, result, stats
+        return solution, None, None
 
 
 class CG(_CG):

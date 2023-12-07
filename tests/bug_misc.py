@@ -8,7 +8,9 @@ from jaxtyping import Array, ArrayLike, Bool, PyTree, Scalar  # pyright:ignore
 from tests.bug_opers import IdentityLinearOperator
 
 
-def preconditioner_and_y0(operator, vector: PyTree[Array], options: dict[str, Any]):
+def preconditioner_and_y0(
+    operator, vector: PyTree[Array], options: dict[str, Any] = None
+):
     structure = operator.in_structure()
     preconditioner = IdentityLinearOperator(structure)
     y0 = jtu.tree_map(jnp.zeros_like, vector)

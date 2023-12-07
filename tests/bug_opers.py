@@ -62,24 +62,6 @@ class IdentityLinearOperator(eqx.Module):
         return vector
 
 
-class AuxLinearOperator(eqx.Module):
-    """Internal to lineax. Used to represent a linear operator with additional
-    metadata attached.
-    """
-
-    operator: Any
-    aux: PyTree[Array]
-
-    def mv(self, vector):
-        return self.operator.mv(vector)
-
-    def transpose(self):
-        return self.operator.transpose()
-
-    def in_structure(self):
-        return self.operator.in_structure()
-
-
 class JacobianLinearOperator(eqx.Module):
     """Given a function `fn: X -> Y`, and a point `x in X`, then this defines the
     linear operator (also a function `X -> Y`) given by the Jacobian `(d(fn)/dx)(x)`.
@@ -127,28 +109,17 @@ class JacobianLinearOperator(eqx.Module):
             properties are unchecked and you may get incorrect values elsewhere if these
             tags are wrong.
         """
-        if not _has_aux:
-            fn = NoneAux(fn)
-        # Flush out any closed-over values, so that we can safely pass `self`
-        # across API boundaries. (In particular, across `linear_solve_p`.)
-        # We don't use `jax.closure_convert` as that only flushes autodiffable
-        # (=floating-point) constants. It probably doesn't matter, but if `fn` is a
-        # PyTree capturing non-floating-point constants, we should probably continue
-        # to respect that, and keep any non-floating-point constants as part of the
-        # PyTree structure.
+        fn = NoneAux(fn)
+
         x = jtu.tree_map(inexact_asarray, x)
         fn = eqx.filter_closure_convert(fn, x, args)
         self.fn = fn
         self.x = x
-        self.args = args
+        self.args = None
         self.tags = None
 
     def in_structure(self):
         return jax.eval_shape(lambda: self.x)
-
-    def out_structure(self):
-        fn = _NoAuxOut(_NoAuxIn(self.fn, self.args))
-        return eqxi.cached_filter_eval_shape(fn, self.x)
 
 
 # `input_structure` must be static as with `JacobianLinearOperator`
@@ -223,9 +194,6 @@ class TangentLinearOperator(eqx.Module):
     primal: Any
     tangent: Any
 
-    def __check_init__(self):
-        assert type(self.primal) is type(self.tangent)  # noqa: E721
-
     def mv(self, vector):
         mv = lambda operator: operator.mv(vector)
         out, t_out = eqx.filter_jvp(mv, (self.primal,), (self.tangent,))
@@ -274,7 +242,7 @@ def _(operator):
     (_, aux), lin = jax.linearize(fn, operator.x)
     lin = _NoAuxOut(lin)
     out = FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
-    return AuxLinearOperator(out, aux)
+    return out
 
 
 @linearise.register(TangentLinearOperator)
