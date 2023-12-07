@@ -58,11 +58,6 @@ def make_jac_operator(getkey, matrix, tags):
     jax.debug.print("{a} {b} {c} {diff}", a=a, b=b, c=c, diff=diff)
     return JacobianLinearOperator(fn, x, None, tags)
 
-
-def has_tag(tags, tag):
-    return tag is tags or (isinstance(tags, tuple) and tag in tags)
-
-
 def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype):
     while True:
         matrix = jr.normal(getkey(), (size, size), dtype=dtype)
