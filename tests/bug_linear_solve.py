@@ -15,7 +15,6 @@ from tests.bug_opers import (
     linearise,
     TangentLinearOperator,
 )
-from tests.bug_solution import Solution
 
 
 #
@@ -45,7 +44,7 @@ def _sum(*args):
 def _linear_solve_impl(_, state, vector, options, solver, throw, *, check_closure):
     out = solver.compute(state, vector, options)
     solution, result, stats = out
-    return solution, result, stats
+    return solution
 
 
 @eqxi.filter_primitive_def
@@ -76,7 +75,7 @@ def _linear_solve_jvp(primals, tangents):
     # Note that we pass throw=True unconditionally to all the tangent solves, as there
     # is nowhere we can pipe their error to.
     # This is the primal solve so we can respect the original `throw`.
-    solution, result, stats = eqxi.filter_primitive_bind(
+    solution = eqxi.filter_primitive_bind(
         linear_solve_p, operator, state, vector, options, solver, throw
     )
 
@@ -96,19 +95,10 @@ def _linear_solve_jvp(primals, tangents):
 
     vecs = jtu.tree_map(_sum, *vecs)
     # the A^ term at the very beginning
-    sol, _, _ = eqxi.filter_primitive_bind(
+    sol = eqxi.filter_primitive_bind(
         linear_solve_p, operator, state, vecs, options, solver, True
     )
-    sols.append(sol)
-    t_solution = jtu.tree_map(_sum, *sols)
-
-    out = solution, result, stats
-    t_out = (
-        t_solution,
-        jtu.tree_map(lambda _: None, result),
-        jtu.tree_map(lambda _: None, stats),
-    )
-    return out, t_out
+    return solution, sol
 
 
 # Call with `check_closure=False` so that the autocreated vmap rule works.
@@ -142,96 +132,7 @@ def linear_solve(
     options: Optional[dict[str, Any]] = None,
     state: PyTree[Any] = None,
     throw: bool = True,
-) -> Solution:
-    r"""Solves a linear system.
-
-    Given an operator represented as a matrix $A$, and a vector $b$: if the operator is
-    square and nonsingular (so that the problem is well-posed), then this returns the
-    usual solution $x$ to $Ax = b$, defined as $A^{-1}b$.
-
-    If the operator is overdetermined, then this either returns the least-squares
-    solution $\min_x \| Ax - b \|_2$, or throws an error. (Depending on the choice of
-    solver.)
-
-    If the operator is underdetermined, then this either returns the minimum-norm
-    solution $\min_x \|x\|_2 \text{ subject to } Ax = b$, or throws an error. (Depending
-    on the choice of solver.)
-
-    !!! info
-
-        This function is equivalent to either `numpy.linalg.solve`, or to its
-        generalisation `numpy.linalg.lstsq`, depending on the choice of solver.
-
-    The default solver is `lineax.AutoLinearSolver(well_posed=True)`. This
-    automatically selects a solver depending on the structure (e.g. triangular) of your
-    problem, and will throw an error if your system is overdetermined or
-    underdetermined.
-
-    Use `lineax.AutoLinearSolver(well_posed=False)` if your system is known to be
-    overdetermined or underdetermined (although handling this case implies greater
-    computational cost).
-
-    !!! tip
-
-        These three kinds of solution to a linear system are collectively known as the
-        "pseudoinverse solution" to a linear system. That is, given our matrix $A$, let
-        $A^\dagger$ denote the
-        [Moore--Penrose pseudoinverse](https://en.wikipedia.org/wiki/Moore%E2%80%93Penrose_inverse)
-        of $A$. Then the usual/least-squares/minimum-norm solution are all equal to
-        $A^\dagger b$.
-
-    **Arguments:**
-
-    - `operator`: a linear operator. This is the '$A$' in '$Ax = b$'.
-
-        Most frequently this operator is simply represented as a JAX matrix (i.e. a
-        rank-2 JAX array), but any [`lineax.AbstractLinearOperator`][] is supported.
-
-        Note that if it is a matrix, then it should be passed as an
-        [`lineax.MatrixLinearOperator`][], e.g.
-        ```python
-        matrix = jax.random.normal(key, (5, 5))  # JAX array of shape (5, 5)
-        operator = lx.MatrixLinearOperator(matrix)  # Wrap into a linear operator
-        solution = lx.linear_solve(operator, ...)
-        ```
-        rather than being passed directly.
-
-    - `vector`: the vector to solve against. This is the '$b$' in '$Ax = b$'.
-
-    - `solver`: the solver to use. Should be any [`lineax.AbstractLinearSolver`][].
-        The default is [`lineax.AutoLinearSolver`][] which behaves as discussed
-        above.
-
-        If the operator is overdetermined or underdetermined , then passing
-        [`lineax.SVD`][] is typical.
-
-    - `options`: Individual solvers may accept additional runtime arguments; for example
-        [`lineax.CG`][] allows for specifying a preconditioner. See each individual
-        solver's documentation for more details. Keyword only argument.
-
-    - `state`: If performing multiple linear solves with the same operator, then it is
-        possible to save re-use some computation between these solves, and to pass the
-        result of any intermediate computation in as this argument. See
-        [`lineax.AbstractLinearSolver.init`][] for more details. Keyword only
-        argument.
-
-    - `throw`: How to report any failures. (E.g. an iterative solver running out of
-        steps, or a well-posed-only solver being run with a singular operator.)
-
-        If `True` then a failure will raise an error. Note that errors are only reliably
-        raised on CPUs. If on GPUs then the error may only be printed to stderr, whilst
-        on TPUs then the behaviour is undefined.
-
-        If `False` then the returned solution object will have a `result` field
-        indicating whether any failures occured. (See [`lineax.Solution`][].)
-
-        Keyword only argument.
-
-    **Returns:**
-
-    An [`lineax.Solution`][] object containing the solution to the linear system.
-    """  # noqa: E501
-
+):
     if options is None:
         options = {}
     vector = jtu.tree_map(inexact_asarray, vector)
@@ -243,9 +144,7 @@ def linear_solve(
     solver = eqxi.nondifferentiable(
         solver, name="`lineax.linear_solve(..., solver=...)`"
     )
-    solution, result, stats = eqxi.filter_primitive_bind(
+    solution = eqxi.filter_primitive_bind(
         linear_solve_p, operator, state, vector, options, solver, throw
     )
-    # TODO: prevent forward-mode autodiff through stats
-    stats = eqxi.nondifferentiable_backward(stats)
-    return Solution(value=solution, result=result, state=state, stats=stats)
+    return solution

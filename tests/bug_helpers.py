@@ -25,7 +25,6 @@ def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype):
     while True:
         matrix = jr.normal(getkey(), (size, size), dtype=dtype)
         matrix = -matrix @ matrix.T.conj()
-        jax.debug.print("matrix {matrix}", matrix=jnp.linalg.cond(matrix))
         if eqxi.unvmap_all(jnp.linalg.cond(matrix) < cond_cutoff):  # pyright: ignore
             break
     return matrix

@@ -29,11 +29,9 @@ from tests.bug_misc import (
     preconditioner_and_y0,
     max_norm,
     resolve_rcond,
-    tree_dot,
     tree_where,
 )
 from tests.bug_opers import linearise, conj
-from tests.bug_solution import RESULTS
 
 
 class _CG(eqx.Module):
@@ -45,17 +43,12 @@ class _CG(eqx.Module):
 
     _normal: AbstractClassVar[bool]
 
-    def __check_init__(self):
-        pass
-
     def init(self, operator, options: dict[str, Any]):
         del options
         is_nsd = True
         return operator, is_nsd
 
-    def compute(
-        self, state, vector: PyTree[Array], options: dict[str, Any]
-    ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
+    def compute(self, state, vector: PyTree[Array], options: dict[str, Any]):
         operator, is_nsd = state
 
         operator = linearise(operator)
@@ -74,7 +67,7 @@ class _CG(eqx.Module):
         max_steps = 10 * size  # Copied from SciPy!
         r0 = (vector**ω - mv(y0) ** ω).ω
         p0 = preconditioner.mv(r0)
-        gamma0 = tree_dot(r0, p0)
+        gamma0 = jnp.vdot(r0, p0)
         rcond = resolve_rcond(None, size, size, jnp.result_type(*leaves))
         initial_value = (
             ω(y0).call(lambda x: jnp.full_like(x, jnp.inf)).ω,
@@ -107,7 +100,7 @@ class _CG(eqx.Module):
             _, y, r, p, gamma, step = value
             mat_p = mv(p)
 
-            inner_prod = tree_dot(p, mat_p)
+            inner_prod = jnp.vdot(p, mat_p)
             alpha = gamma / inner_prod
             alpha = tree_where(
                 jnp.abs(inner_prod) > 100 * rcond * gamma, alpha, jnp.nan
@@ -123,7 +116,7 @@ class _CG(eqx.Module):
 
             z = preconditioner.mv(r)
             gamma_prev = gamma
-            gamma = tree_dot(r, z)
+            gamma = jnp.vdot(r, z)
             beta = gamma / gamma_prev
             p = (z**ω + beta * p**ω).ω
             return diff, y, r, p, gamma, step
@@ -135,53 +128,5 @@ class _CG(eqx.Module):
         return solution, None, None
 
 
-class CG(_CG):
-    """Conjugate gradient solver for linear systems.
-
-    The operator should be positive or negative definite.
-
-    Equivalent to `scipy.sparse.linalg.cg`.
-
-    This supports the following `options` (as passed to
-    `lx.linear_solve(..., options=...)`).
-
-    - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
-        to be used as preconditioner. Defaults to
-        [`lineax.IdentityLinearOperator`][].
-    - `y0`: The initial estimate of the solution to the linear system. Defaults to all
-        zeros.
-
-    !!! info
-
-
-    """
-
-    _normal: ClassVar[bool] = False
-
-
 class NormalCG(_CG):
-    """Conjugate gradient applied to the normal equations:
-
-    `A^T A = A^T b`
-
-    of a system of linear equations. Note that this squares the condition
-    number, so it is not recommended. This is a fast but potentially inaccurate
-    method, especially in 32 bit floating point precision.
-
-    This can handle nonsquare operators provided they are full-rank.
-
-    This supports the following `options` (as passed to
-    `lx.linear_solve(..., options=...)`).
-
-    - `preconditioner`: A positive definite [`lineax.AbstractLinearOperator`][]
-        to be used as preconditioner. Defaults to
-        [`lineax.IdentityLinearOperator`][].
-    - `y0`: The initial estimate of the solution to the linear system. Defaults to all
-        zeros.
-
-    !!! info
-
-
-    """
-
     _normal: ClassVar[bool] = True

@@ -48,7 +48,7 @@ def test_jvp_jvp(getkey):
         state = eqx.combine(state_dynamic, state_static)
 
         sol = linear_solve(operator, vector, state=state, solver=solver)
-        return sol.value
+        return sol
 
     jnp_solve1 = jnp.linalg.solve
 
