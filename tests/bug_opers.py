@@ -2,10 +2,8 @@ import functools as ft
 from collections.abc import Callable
 from typing import (
     Any,
-    Iterable,
     NoReturn,
     TypeVar,
-    Union,
 )
 
 import equinox as eqx
@@ -92,8 +90,8 @@ class JacobianLinearOperator(eqx.Module):
         self,
         fn: Callable,
         x: PyTree[ArrayLike],
-        args: PyTree[Any] = None,
-        tags: Union[object, Iterable[object]] = (),
+        args=None,
+        tags=(),
         _has_aux: bool = False,
     ):
         """**Arguments:**
@@ -139,7 +137,7 @@ class FunctionLinearOperator(eqx.Module):
         self,
         fn: Callable[[PyTree[Inexact[Array, "..."]]], PyTree[Inexact[Array, "..."]]],
         input_structure: PyTree[jax.ShapeDtypeStruct],
-        tags: Union[object, Iterable[object]] = (),
+        tags=(),
     ):
         """**Arguments:**
 
@@ -213,25 +211,6 @@ def _default_not_implemented(name: str, operator) -> NoReturn:
 
 @ft.singledispatch
 def linearise(operator):
-    """Linearises a linear operator. This returns another linear operator.
-
-    Mathematically speaking this is just the identity function. And indeed most linear
-    operators will be returned unchanged.
-
-    For specifically [`lineax.JacobianLinearOperator`][], then this will cache the
-    primal pass, so that it does not need to be recomputed each time. That is, it uses
-    some memory to improve speed. (This is the precisely same distinction as `jax.jvp`
-    versus `jax.linearize`.)
-
-    **Arguments:**
-
-    - `operator`: a linear operator.
-
-    **Returns:**
-
-    Another linear operator. Mathematically it performs matrix-vector products
-    (`operator.mv`) that produce the same results as the input `operator`.
-    """
     _default_not_implemented("linearise", operator)
 
 
@@ -239,7 +218,7 @@ def linearise(operator):
 def _(operator):
     fn = _NoAuxIn(operator.fn, operator.args)
     # print(f"l, {operator.as_matrix()}")
-    (_, aux), lin = jax.linearize(fn, operator.x)
+    _, lin = jax.linearize(fn, operator.x)
     lin = _NoAuxOut(lin)
     out = FunctionLinearOperator(lin, operator.in_structure(), operator.tags)
     return out
@@ -258,21 +237,11 @@ def _(operator):
 
 @ft.singledispatch
 def conj(operator):
-    """Elementwise conjugate of a linear operator. This returns another linear operator.
-
-    **Arguments:**
-
-    - `operator`: a linear operator.
-
-    **Returns:**
-
-    Another linear operator.
-    """
     _default_not_implemented("conj", operator)
 
 
 @conj.register(FunctionLinearOperator)
-def _(operator):
+def conj(operator):
     return FunctionLinearOperator(
         lambda vec: jtu.tree_map(jnp.conj, operator.mv(jtu.tree_map(jnp.conj, vec))),
         operator.in_structure(),

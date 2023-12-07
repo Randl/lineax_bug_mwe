@@ -28,10 +28,5 @@ class _NoAuxOut(eqx.Module):
         return f
 
 
-def _asarray(dtype, x):
-    return jnp.asarray(x, dtype=dtype)
-
-
 def inexact_asarray(x):
-    dtype = jnp.result_type(x)
-    return _asarray(dtype, x)
+    return jnp.asarray(x, dtype=jnp.result_type(x))

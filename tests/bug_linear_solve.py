@@ -1,6 +1,4 @@
 import functools as ft
-from typing import Any
-from typing import Optional, TypeVar
 
 import equinox as eqx
 import equinox.internal as eqxi
@@ -42,9 +40,7 @@ def _sum(*args):
 
 
 def _linear_solve_impl(_, state, vector, options, solver, throw, *, check_closure):
-    out = solver.compute(state, vector, options)
-    solution, result, stats = out
-    return solution
+    return solver.compute(state, vector, options)
 
 
 @eqxi.filter_primitive_def
@@ -80,18 +76,17 @@ def _linear_solve_jvp(primals, tangents):
     )
 
     vecs = []
-    sols = []
-    if any(t is not None for t in jtu.tree_leaves(t_vector, is_leaf=_is_none)):
-        # b' term
-        vecs.append(
-            jtu.tree_map(eqxi.materialise_zeros, vector, t_vector, is_leaf=_is_none)
-        )
-    if any(t is not None for t in jtu.tree_leaves(t_operator, is_leaf=_is_none)):
-        t_operator = TangentLinearOperator(operator, t_operator)
-        t_operator = linearise(t_operator)  # optimise for matvecs
-        # -A'x term
-        vec = (-t_operator.mv(solution) ** ω).ω
-        vecs.append(vec)
+
+    # b' term
+    vecs.append(
+        jtu.tree_map(eqxi.materialise_zeros, vector, t_vector, is_leaf=_is_none)
+    )
+
+    t_operator = TangentLinearOperator(operator, t_operator)
+    t_operator = linearise(t_operator)  # optimise for matvecs
+    # -A'x term
+    vec = (-t_operator.mv(solution) ** ω).ω
+    vecs.append(vec)
 
     vecs = jtu.tree_map(_sum, *vecs)
     # the A^ term at the very beginning
@@ -115,13 +110,6 @@ linear_solve_p.def_impl(
 )
 eqxi.register_impl_finalisation(linear_solve_p)
 
-#
-# linear_solve
-#
-
-
-_SolverState = TypeVar("_SolverState")
-
 
 @eqx.filter_jit
 def linear_solve(
@@ -129,8 +117,8 @@ def linear_solve(
     vector: PyTree[ArrayLike],
     solver=None,
     *,
-    options: Optional[dict[str, Any]] = None,
-    state: PyTree[Any] = None,
+    options=None,
+    state=None,
     throw: bool = True,
 ):
     if options is None:

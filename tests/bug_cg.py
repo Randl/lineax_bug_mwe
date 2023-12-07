@@ -102,7 +102,7 @@ class _CG(eqx.Module):
 
             inner_prod = jnp.vdot(p, mat_p)
             alpha = gamma / inner_prod
-            alpha = tree_where(
+            alpha = tree_where( # TODO: replacing with jnp.where reduces probability of fail
                 jnp.abs(inner_prod) > 100 * rcond * gamma, alpha, jnp.nan
             )
             diff = (alpha * p**ω).ω
@@ -121,11 +121,9 @@ class _CG(eqx.Module):
             p = (z**ω + beta * p**ω).ω
             return diff, y, r, p, gamma, step
 
-        _, solution, _, _, _, num_steps = lax.while_loop(
-            cond_fun, body_fun, initial_value
-        )
+        _, solution, _, _, _, _ = lax.while_loop(cond_fun, body_fun, initial_value)
 
-        return solution, None, None
+        return solution
 
 
 class NormalCG(_CG):
