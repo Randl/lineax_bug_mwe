@@ -18,9 +18,10 @@ import equinox as eqx
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.random as jr
+import numpy as np
 
 from tests.bug_cg import NormalCG
-from tests.bug_helpers import construct_matrix, make_jac_operator, shaped_allclose
+from tests.bug_helpers import construct_matrix, make_jac_operator
 from tests.bug_linear_solve import linear_solve
 
 
@@ -62,10 +63,11 @@ def test_jvp_jvp(getkey):
     jnp_solve3 = lambda v: jnp_solve2((matrix, v), (t_matrix, t_vec))
 
     linear_solve3 = eqx.filter_jit(linear_solve3)
-    out=linear_solve3(vec)
+    o1,o2=linear_solve3(vec)
 
 
     jnp_solve3 = eqx.filter_jit(jnp_solve3)
-    true_out=jnp_solve3(vec)
+    to1,to2=jnp_solve3(vec)
 
-    assert shaped_allclose(out, true_out, atol=1e-4)
+    assert np.allclose(o1, to1, atol=1e-4)
+    assert np.allclose(o2, to2, atol=1e-4)
