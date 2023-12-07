@@ -30,14 +30,10 @@ def test_jvp_jvp(getkey):
     solver = NormalCG(rtol=tol, atol=tol)
     dtype = jnp.complex128
 
-    matrix, t_matrix = construct_matrix(
-        getkey, solver, None, num=2, dtype=dtype
-    )
+    matrix, t_matrix = construct_matrix(getkey, solver, None, num=2, dtype=dtype)
 
     make_op = ft.partial(make_jac_operator, getkey)
-    t_make_operator = lambda p, t_p: eqx.filter_jvp(
-        make_op, (p, None), (t_p, None)
-    )
+    t_make_operator = lambda p, t_p: eqx.filter_jvp(make_op, (p, None), (t_p, None))
 
     operator, t_operator = t_make_operator(matrix, t_matrix)
 
@@ -63,11 +59,10 @@ def test_jvp_jvp(getkey):
     jnp_solve3 = lambda v: jnp_solve2((matrix, v), (t_matrix, t_vec))
 
     linear_solve3 = eqx.filter_jit(linear_solve3)
-    o1,o2=linear_solve3(vec)
-
+    o1, o2 = linear_solve3(vec)
 
     jnp_solve3 = eqx.filter_jit(jnp_solve3)
-    to1,to2=jnp_solve3(vec)
+    to1, to2 = jnp_solve3(vec)
 
     assert np.allclose(o1, to1, atol=1e-4)
     assert np.allclose(o2, to2, atol=1e-4)

@@ -1,5 +1,4 @@
 import functools as ft
-import math
 from collections.abc import Callable
 from typing import (
     Any,
@@ -12,8 +11,6 @@ from typing import (
 import equinox as eqx
 import equinox.internal as eqxi
 import jax
-import jax.flatten_util as jfu
-import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
 from jaxtyping import (  # pyright: ignore
@@ -29,7 +26,6 @@ from tests.bug_oper_misc import (
     _NoAuxOut,
     _NoAuxIn,
 )
-from tests.bug_type import sentinel
 
 # Needed as static fields must be hashable and eq-able, and custom pytrees might have
 # e.g. define custom __eq__ methods.
@@ -57,33 +53,14 @@ class IdentityLinearOperator(eqx.Module):
     def __init__(
         self,
         input_structure: PyTree[jax.ShapeDtypeStruct],
-        output_structure: PyTree[jax.ShapeDtypeStruct] = sentinel,
+        output_structure=None,
     ):
-        """**Arguments:**
-
-        - `input_structure`: A PyTree of `jax.ShapeDtypeStruct`s specifying the
-            structure of the the input space. (When later calling `self.mv(x)`
-            then this should match the structure of `x`, i.e.
-            `jax.eval_shape(lambda: x)`.)
-        - `output_structure`: A PyTree of `jax.ShapeDtypeStruct`s specifying the
-            structure of the the output space. If not passed then this defaults to the
-            same as `input_structure`. If passed then it must have the same number of
-            elements as `input_structure`, so that the operator is square.
-        """
-        if output_structure is sentinel:
-            output_structure = input_structure
         input_structure = _inexact_structure(input_structure)
-        output_structure = _inexact_structure(output_structure)
         self.input_structure = jtu.tree_flatten(input_structure)
-        self.output_structure = jtu.tree_flatten(output_structure)
+        self.output_structure = jtu.tree_flatten(input_structure)
 
     def mv(self, vector):
-        if jax.eval_shape(lambda: vector) != self.in_structure():
-            raise ValueError("Vector and operator structures do not match")
-        elif self.input_structure == self.output_structure:
-            return vector  # fast-path for common special case
-        else:
-            raise ValueError()
+        return vector
 
     def in_structure(self):
         leaves, treedef = self.input_structure
@@ -243,6 +220,7 @@ class FunctionLinearOperator(eqx.Module):
 
     def out_structure(self):
         return eqxi.cached_filter_eval_shape(self.fn, self.in_structure())
+
 
 def _is_none(x):
     return x is None
@@ -412,4 +390,3 @@ def _(operator):
 @materialise.register(AuxLinearOperator)  # pyright: ignore
 def _(operator):
     return materialise(operator.operator)
-

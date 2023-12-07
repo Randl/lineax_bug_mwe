@@ -1,13 +1,9 @@
-import functools as ft
 import math
-import operator
 
 import equinox.internal as eqxi
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import jax.tree_util as jtu
-import numpy as np
 
 from tests.bug_opers import JacobianLinearOperator
 
@@ -24,6 +20,7 @@ def make_jac_operator(getkey, matrix, tags):
     fn = lambda x, _: a + (b + diff) @ x + c @ x**2
     jax.debug.print("{a} {b} {c} {diff}", a=a, b=b, c=c, diff=diff)
     return JacobianLinearOperator(fn, x, None, tags)
+
 
 def _construct_matrix_impl(getkey, cond_cutoff, tags, size, dtype):
     while True:

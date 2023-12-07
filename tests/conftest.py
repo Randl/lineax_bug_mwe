@@ -44,4 +44,4 @@ class _GetKey:
 
 @pytest.fixture
 def getkey():
-    return _GetKey(1342259057,)
+    return _GetKey(1342259057)
