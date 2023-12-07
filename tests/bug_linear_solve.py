@@ -27,20 +27,12 @@ from tests.bug_solution import RESULTS, Solution
 
 
 def _to_shapedarray(x):
-    if isinstance(x, jax.ShapeDtypeStruct):
-        return jax.core.ShapedArray(x.shape, x.dtype)
-    else:
-        return x
+    return jax.core.ShapedArray(x.shape, x.dtype)
 
 
 def _to_struct(x):
     if isinstance(x, jax.core.ShapedArray):
         return jax.ShapeDtypeStruct(x.shape, x.dtype)
-    elif isinstance(x, jax.core.AbstractValue):
-        raise NotImplementedError(
-            "`lineax.linear_solve` only supports working with JAX arrays; not "
-            f"other abstract values. Got abstract value {x}."
-        )
     else:
         return x
 
@@ -55,10 +47,6 @@ def _sum(*args):
 
 def _linear_solve_impl(_, state, vector, options, solver, throw, *, check_closure):
     out = solver.compute(state, vector, options)
-    if check_closure:
-        out = eqxi.nontraceable(
-            out, name="lineax.linear_solve with respect to a closed-over value"
-        )
     solution, result, stats = out
     has_nonfinites = jnp.any(
         jnp.stack(
@@ -452,25 +440,11 @@ def linear_solve(
     An [`lineax.Solution`][] object containing the solution to the linear system.
     """  # noqa: E501
 
-    if eqx.is_array(operator):
-        raise ValueError(
-            "`lineax.linear_solve(operator=...)` should be an "
-            "`AbstractLinearOperator`, not a raw JAX array. If you are trying to pass "
-            "a matrix then this should be passed as "
-            "`lineax.MatrixLinearOperator(matrix)`."
-        )
     if options is None:
         options = {}
     vector = jtu.tree_map(inexact_asarray, vector)
     vector_struct = jax.eval_shape(lambda: vector)
     operator_out_structure = operator.out_structure()
-    # `is` to handle tracers
-    if eqx.tree_equal(vector_struct, operator_out_structure) is not True:
-        raise ValueError(
-            "Vector and operator structures do not match. Got a vector with structure "
-            f"{vector_struct} and an operator with out-structure "
-            f"{operator_out_structure}"
-        )
 
     state = eqxi.nondifferentiable(state, name="`lineax.linear_solve(..., state=...)`")
     options = eqxi.nondifferentiable(
