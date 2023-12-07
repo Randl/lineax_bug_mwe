@@ -13,19 +13,8 @@ from tests.bug_opers import IdentityLinearOperator
 
 def preconditioner_and_y0(operator, vector: PyTree[Array], options: dict[str, Any]):
     structure = operator.in_structure()
-    try:
-        preconditioner = options["preconditioner"]
-    except KeyError:
-        preconditioner = IdentityLinearOperator(structure)
-    try:
-        y0 = options["y0"]
-    except KeyError:
-        y0 = jtu.tree_map(jnp.zeros_like, vector)
-    else:
-        if jax.eval_shape(lambda: y0) != jax.eval_shape(lambda: vector):
-            raise ValueError(
-                "`y0` must have the same structure, shape, and dtype as `vector`"
-            )
+    preconditioner = IdentityLinearOperator(structure)
+    y0 = jtu.tree_map(jnp.zeros_like, vector)
     return preconditioner, y0
 
 
