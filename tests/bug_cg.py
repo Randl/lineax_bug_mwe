@@ -17,16 +17,13 @@ from typing import Any, Optional
 from typing import ClassVar
 
 import equinox as eqx
-import equinox.internal as eqxi
-import jax
-import jax.core
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.tree_util as jtu
+from equinox.internal import AbstractClassVar
 from equinox.internal import ω
 from jaxtyping import Array, PyTree
 from jaxtyping import Scalar
-from typing_extensions import TYPE_CHECKING
 
 from tests.bug_misc import (
     preconditioner_and_y0,
@@ -38,16 +35,7 @@ from tests.bug_misc import (
 from tests.bug_opers import linearise, conj
 from tests.bug_solution import RESULTS
 
-if TYPE_CHECKING:
-    from typing import ClassVar as AbstractClassVar
-else:
-    from equinox.internal import AbstractClassVar
 
-
-# TODO(kidger): this is pretty slow to compile.
-# - CG evaluates `operator.mv` three times.
-# - Normal CG evaluates `operator.mv` seven (!) times.
-# Possibly this can be cheapened a bit somehow?
 class _CG(eqx.Module):
     rtol: float
     atol: float
@@ -65,39 +53,21 @@ class _CG(eqx.Module):
         is_nsd = True
         return operator, is_nsd
 
-    # This differs from jax.scipy.sparse.linalg.cg in:
-    # 1. Every few steps we calculate the residual directly, rather than by cheaply
-    #    using the existing quantities. This improves numerical stability.
-    # 2. We use a more sophisticated termination condition. To begin with we have an
-    #    rtol and atol in the conventional way, inducing a vector-valued scale. This is
-    #    then checked in both the `y` and `b` domains (for `Ay = b`).
-    # 3. We return the number of steps, and whether or not the solve succeeded, as
-    #    additional information.
-    # 4. We don't try to support complex numbers. (Yet.)
     def compute(
         self, state, vector: PyTree[Array], options: dict[str, Any]
     ) -> tuple[PyTree[Array], RESULTS, dict[str, Any]]:
         operator, is_nsd = state
-        if self._normal:
-            # Linearise if JacobianLinearOperator, to avoid computing the forward
-            # pass separately for mv and transpose_mv.
-            # This choice is "fast by default", even at the expense of memory.
-            # If a downstream user wants to avoid this then they can call
-            # ```
-            # linear_solve(
-            #     conj(operator.T) @ operator, operator.mv(b), solver=CG()
-            # )
-            # ```
-            # directly.
-            operator = linearise(operator)
 
-            _mv = operator.mv
-            _transpose_mv = conj(operator.transpose()).mv
 
-            def mv(vector: PyTree) -> PyTree:
-                return _transpose_mv(_mv(vector))
+        operator = linearise(operator)
 
-            vector = _transpose_mv(vector)
+        _mv = operator.mv
+        _transpose_mv = conj(operator.transpose()).mv
+
+        def mv(vector):
+            return _transpose_mv(_mv(vector))
+
+        vector = _transpose_mv(vector)
 
         preconditioner, y0 = preconditioner_and_y0(operator, vector, options)
         leaves, _ = jtu.tree_flatten(vector)
@@ -115,26 +85,17 @@ class _CG(eqx.Module):
             gamma0,
             0,
         )
-        has_scale = not (
-            isinstance(self.atol, (int, float))
-            and isinstance(self.rtol, (int, float))
-            and self.atol == 0
-            and self.rtol == 0
-        )
-        if has_scale:
-            b_scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
+
+        b_scale = (self.atol + self.rtol * ω(vector).call(jnp.abs)).ω
 
         def not_converged(r, diff, y):
             # The primary tolerance check.
             # Given Ay=b, then we have to be doing better than `scale` in both
             # the `y` and the `b` spaces.
-            if has_scale:
-                y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
-                norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
-                norm2 = self.norm((diff**ω / y_scale**ω).ω)
-                return (norm1 > 1) | (norm2 > 1)
-            else:
-                return True
+            y_scale = (self.atol + self.rtol * ω(y).call(jnp.abs)).ω
+            norm1 = self.norm((r**ω / b_scale**ω).ω)  # pyright: ignore
+            norm2 = self.norm((diff**ω / y_scale**ω).ω)
+            return (norm1 > 1) | (norm2 > 1)
 
         def cond_fun(value):
             diff, y, r, _, gamma, step = value
@@ -158,6 +119,7 @@ class _CG(eqx.Module):
 
             def stable_r():
                 return (vector**ω - mv(y) ** ω).ω
+
             r = stable_r()
 
             z = preconditioner.mv(r)
