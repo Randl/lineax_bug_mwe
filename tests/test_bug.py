@@ -15,6 +15,7 @@
 import functools as ft
 
 import equinox as eqx
+import jax
 import jax.lax as lax
 import jax.numpy as jnp
 import jax.random as jr
@@ -59,7 +60,11 @@ def test_jvp_jvp(getkey):
     jnp_solve3 = lambda v: jnp_solve2((matrix, v), (t_matrix, t_vec))
 
     linear_solve3 = eqx.filter_jit(linear_solve3)
-    o1, o2 = linear_solve3(vec)
+    lowered = jax.jit(linear_solve3).lower(vec)
+    compiled = lowered.compile()
+    print(vec)
+    o1, o2 = compiled(vec)
+    print(compiled.as_text())
 
     jnp_solve3 = eqx.filter_jit(jnp_solve3)
     to1, to2 = jnp_solve3(vec)

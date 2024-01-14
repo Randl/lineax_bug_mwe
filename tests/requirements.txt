@@ -1,5 +1,7 @@
-beartype
-equinox
+equinox>=0.11.2
 pytest
 pytest-xdist
+pytest-repeat
 jaxlib
+jax
+jaxtyping
