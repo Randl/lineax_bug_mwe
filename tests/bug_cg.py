@@ -45,11 +45,10 @@ class _CG(eqx.Module):
 
     def init(self, operator, options: dict[str, Any]):
         del options
-        is_nsd = True
-        return operator, is_nsd
+        return operator
 
     def compute(self, state, vector: PyTree[Array], options: dict[str, Any]):
-        operator, is_nsd = state
+        operator = state
 
         operator = linearise(operator)
 

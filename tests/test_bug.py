@@ -31,10 +31,10 @@ def test_jvp_jvp(getkey):
     solver = NormalCG(rtol=tol, atol=tol)
     dtype = jnp.complex128
 
-    matrix, t_matrix = construct_matrix(getkey, solver, None, num=2, dtype=dtype)
+    matrix, t_matrix = construct_matrix(getkey, num=2, dtype=dtype)
 
     make_op = ft.partial(make_jac_operator, getkey)
-    t_make_operator = lambda p, t_p: eqx.filter_jvp(make_op, (p, None), (t_p, None))
+    t_make_operator = lambda p, t_p: eqx.filter_jvp(make_op, (p, ), (t_p, ))
 
     operator, t_operator = t_make_operator(matrix, t_matrix)
 
@@ -43,29 +43,27 @@ def test_jvp_jvp(getkey):
     t_vec = jr.normal(getkey(), (out_size,), dtype=dtype)
 
     def linear_solve1(operator, vector):
-        state = solver.init(operator, options={})
-        state_dynamic, state_static = eqx.partition(state, eqx.is_inexact_array)
+        state_dynamic, state_static = eqx.partition(operator, eqx.is_inexact_array)
         state_dynamic = lax.stop_gradient(state_dynamic)
         state = eqx.combine(state_dynamic, state_static)
 
         sol = linear_solve(operator, vector, state=state, solver=solver)
         return sol
 
-    jnp_solve1 = jnp.linalg.solve
-
     linear_solve2 = ft.partial(eqx.filter_jvp, linear_solve1)
-    jnp_solve2 = ft.partial(eqx.filter_jvp, jnp_solve1)
-
     linear_solve3 = lambda v: linear_solve2((operator, v), (t_operator, t_vec))
-    jnp_solve3 = lambda v: jnp_solve2((matrix, v), (t_matrix, t_vec))
 
-    linear_solve3 = eqx.filter_jit(linear_solve3)
     lowered = jax.jit(linear_solve3).lower(vec)
     compiled = lowered.compile()
     print(vec)
     o1, o2 = compiled(vec)
-    print(compiled.as_text())
+    with open('fn_hlo.txt', 'w') as f:
+        f.write(compiled.as_text())
 
+    # TARGET
+    jnp_solve1 = jnp.linalg.solve
+    jnp_solve2 = ft.partial(eqx.filter_jvp, jnp_solve1)
+    jnp_solve3 = lambda v: jnp_solve2((matrix, v), (t_matrix, t_vec))
     jnp_solve3 = eqx.filter_jit(jnp_solve3)
     to1, to2 = jnp_solve3(vec)
 
